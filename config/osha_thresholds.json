@@ -1,0 +1,41 @@
+{
+  "source_note": "Based on published OSHA/NWS heat index risk categories (Caution / Extreme Caution / Danger / Extreme Danger). OSHA publishes these in Fahrenheit — Celsius equivalents below are provided so they can be compared directly against FortyGuard's Celsius output. Use apparent_temperature_celsius at the actual work hour for risk decisions, NOT heat_index_celsius, which peaks around 2am due to a known API quirk (see project notes).",
+  "tiers": [
+    {
+      "level": "lower",
+      "risk_label": "Caution",
+      "heat_index_f_min": 80,
+      "heat_index_f_max": 90,
+      "heat_index_c_min": 26.7,
+      "heat_index_c_max": 32.2,
+      "guidance": "Basic hydration reminders; no schedule change needed."
+    },
+    {
+      "level": "moderate",
+      "risk_label": "Extreme Caution",
+      "heat_index_f_min": 90,
+      "heat_index_f_max": 103,
+      "heat_index_c_min": 32.2,
+      "heat_index_c_max": 39.4,
+      "guidance": "Increase water break frequency; watch for early heat-illness symptoms."
+    },
+    {
+      "level": "high",
+      "risk_label": "Danger",
+      "heat_index_f_min": 103,
+      "heat_index_f_max": 115,
+      "heat_index_c_min": 39.4,
+      "heat_index_c_max": 46.1,
+      "guidance": "Mandatory scheduled rest breaks; buddy system; consider rescheduling non-essential tasks."
+    },
+    {
+      "level": "very_high",
+      "risk_label": "Extreme Danger",
+      "heat_index_f_min": 115,
+      "heat_index_f_max": null,
+      "heat_index_c_min": 46.1,
+      "heat_index_c_max": null,
+      "guidance": "Stop non-essential outdoor work; move to shaded/cooled areas."
+    }
+  ]
+}

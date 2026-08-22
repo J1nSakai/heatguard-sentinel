@@ -93,9 +93,7 @@ ipython_config.py
 #   Similar to Pipfile.lock, it's generally recommended to include poetry.lock in version control.
 #   Uncomment the line below if you specifically want to exclude it.
 #poetry.lock
-# .venv
-venv/
-ENV/
+.venv
 
 # Spyder project settings
 .spyderproject
@@ -251,11 +249,6 @@ public
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-
-# Python virtual environments (redundant but explicit)
-venv/
-env/
-ENV/
 
 # Data directory (as per your project structure)
 /data/
