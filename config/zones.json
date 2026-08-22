@@ -1,0 +1,32 @@
+{
+  "note": "Approximate coordinates for demo purposes — pin exact GPS/address for each real site before final submission if possible.",
+  "zones": [
+    {
+      "id": "construction_downtown",
+      "name": "Downtown Phoenix Construction Corridor",
+      "worker_type": "construction",
+      "description": "High-rise / infrastructure construction area near downtown Phoenix",
+      "lat": 33.4484,
+      "lon": -112.0740,
+      "address_hint": "Near 1st Ave & Washington St, Phoenix, AZ"
+    },
+    {
+      "id": "warehouse_westphx",
+      "name": "West Phoenix Industrial / Warehouse Corridor",
+      "worker_type": "warehouse_logistics",
+      "description": "Warehouse and loading dock district in West Phoenix / Tolleson",
+      "lat": 33.4736,
+      "lon": -112.2626,
+      "address_hint": "Near 91st Ave & Van Buren St, Tolleson, AZ"
+    },
+    {
+      "id": "agriculture_southphx",
+      "name": "South Phoenix Agriculture / Landscaping Area",
+      "worker_type": "agriculture_landscaping",
+      "description": "Agricultural and landscaping operations near South Mountain",
+      "lat": 33.3773,
+      "lon": -112.0989,
+      "address_hint": "Near Baseline Rd & 7th Ave, Phoenix, AZ"
+    }
+  ]
+}
