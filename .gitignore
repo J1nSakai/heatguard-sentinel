@@ -263,3 +263,6 @@ notebooks/outputs/
 # Any other local configuration files not meant for sharing
 config/local.json
 config/private.key
+
+.env
+venv/
