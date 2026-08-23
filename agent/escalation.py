@@ -6,14 +6,19 @@ whether to just log it, or escalate to an active alert.
 
 This is the "agentic" core — the system decides and acts on its own,
 no manual check required.
+
+DEMO MODE: run with `python -m agent.escalation --simulate` to force a
+high-persistence reading through the pipeline (real alert fire, real
+notifier.py write, real llm_phrasing call) without waiting for actual
+weather to cross the threshold. Use this for rehearsal/demo day.
 """
 
+import sys
 from datetime import datetime
-from agent.monitor import get_current_exceedance, get_persistence
+from agent.monitor import get_current_exceedance, get_persistence, simulate_breach
 from agent.notifier import send_alert
+from agent.llm_phrasing import phrase_alert
 
-# --- Escalation tiers (based on OSHA heat index risk categories) ---
-# Adjust these based on your team's Day-1 OSHA research.
 TIERS = {
     "low":      {"max_persistence_hours": 1},
     "moderate": {"max_persistence_hours": 3},
@@ -23,7 +28,6 @@ TIERS = {
 
 
 def classify_risk(persistence_hours: float) -> str:
-    """Maps persistence duration to an OSHA-style risk tier."""
     if persistence_hours <= TIERS["low"]["max_persistence_hours"]:
         return "low"
     elif persistence_hours <= TIERS["moderate"]["max_persistence_hours"]:
@@ -34,14 +38,18 @@ def classify_risk(persistence_hours: float) -> str:
         return "extreme"
 
 
-def evaluate_site() -> dict:
+def evaluate_site(simulate: bool = False) -> dict:
     """
-    Core agent loop step: pull current data, classify risk, decide action.
-    Returns a decision record — this is what gets logged AND what triggers
-    notifier.py if escalation is warranted.
+    simulate=True skips the real persistence API call and injects a high
+    value instead — for demo/rehearsal, so the alert flow can be shown
+    reliably regardless of current actual weather.
     """
     exceedance_data = get_current_exceedance()
-    persistence_data = get_persistence()
+
+    if simulate:
+        persistence_data = simulate_breach(persistence_hours=7.0)
+    else:
+        persistence_data = get_persistence()
 
     persistence_hours = persistence_data["site_persistence_hours"]
     risk_tier = classify_risk(persistence_hours)
@@ -53,24 +61,21 @@ def evaluate_site() -> dict:
         "threshold_c": exceedance_data["threshold_c"],
         "risk_tier": risk_tier,
         "action": None,
+        "simulated": simulate,
     }
 
-    # --- Autonomous decision ---
-    if risk_tier in ("low",):
+    if risk_tier == "low":
         decision["action"] = "log_only"
-    elif risk_tier in ("moderate", "high", "extreme"):
+    else:
         decision["action"] = "alert"
         decision["recommended_response"] = _recommend_action(risk_tier)
-        # Agent acts on its own here — no manual trigger
+        decision["explanation"] = phrase_alert(decision)
         send_alert(decision)
-    else:
-        decision["action"] = "log_only"
 
     return decision
 
 
 def _recommend_action(risk_tier: str) -> str:
-    """Plain recommendation text — LLM phrasing layer (Day 7) will make this richer."""
     recommendations = {
         "moderate": "Increase water-break frequency to every 30 min.",
         "high": "Mandate 15-min shaded break; monitor workers for symptoms.",
@@ -80,5 +85,6 @@ def _recommend_action(risk_tier: str) -> str:
 
 
 if __name__ == "__main__":
-    result = evaluate_site()
+    simulate_mode = "--simulate" in sys.argv
+    result = evaluate_site(simulate=simulate_mode)
     print(result)
