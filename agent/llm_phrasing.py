@@ -12,7 +12,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-
+print("SCRIPT STARTED")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
@@ -71,15 +71,16 @@ def _call_groq(decision: dict, landcover_context: dict = None) -> str:
     )
 
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",   # fast, small — good fit for this use-case
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=100,
+        max_tokens=500,
         temperature=0.3,
     )
     return response.choices[0].message.content.strip()
 
 
 if __name__ == "__main__":
+    import traceback
     fake_decision = {
         "risk_tier": "high",
         "threshold_c": 38.0,
@@ -87,4 +88,9 @@ if __name__ == "__main__":
         "recommended_response": "Mandate 15-min shaded break; monitor workers for symptoms.",
     }
     fake_landcover = {"asphalt_pct": 65, "shade_pct": 8}
-    print(phrase_alert(fake_decision, fake_landcover))
+    try:
+        result = phrase_alert(fake_decision, fake_landcover)
+        print("RESULT:", result)
+    except Exception as e:
+        print("CRASHED:")
+        traceback.print_exc()
