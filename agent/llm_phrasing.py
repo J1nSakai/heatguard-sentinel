@@ -1,13 +1,11 @@
 """
 agent/llm_phrasing.py
 
-Optional layer: takes escalation.py's decision object and generates a
-plain-English explanation using an LLM (Claude/Gemini/etc — pick whichever
-API key your team has access to).
+Turns escalation.py's decision object into a plain-English explanation
+using Groq's API (fast Llama/Mixtral inference).
 
-If this isn't wired up in time, notifier.py already has a hardcoded
-`recommended_response` fallback (see escalation.py's _recommend_action),
-so the demo still works without this file.
+Falls back to a template string if GROQ_API_KEY isn't set or the call fails
+— so the demo never breaks even without the LLM layer working.
 """
 
 import os
@@ -15,32 +13,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Set this to whichever LLM API key your team has (Anthropic/Gemini/OpenAI).
-# If none is set, phrase_alert() falls back to a template string.
-LLM_API_KEY = os.getenv("LLM_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
 def phrase_alert(decision: dict, landcover_context: dict = None) -> str:
     """
-    Generates a plain-language alert message.
-
-    decision: the dict from escalation.py's evaluate_site()
+    decision: dict from escalation.py's evaluate_site()
     landcover_context: optional dict from Person B's insights/landcover.py,
                         e.g. {"asphalt_pct": 70, "shade_pct": 5}
-                        (pass None if not available yet)
     """
-    if not LLM_API_KEY:
+    if not GROQ_API_KEY:
         return _fallback_template(decision, landcover_context)
 
     try:
-        return _call_llm(decision, landcover_context)
+        return _call_groq(decision, landcover_context)
     except Exception as e:
-        print(f"[llm_phrasing] LLM call failed ({e}), using fallback template.")
+        print(f"[llm_phrasing] Groq call failed ({e}), using fallback template.")
         return _fallback_template(decision, landcover_context)
 
 
 def _fallback_template(decision: dict, landcover_context: dict = None) -> str:
-    """No-LLM fallback — still produces a readable alert message."""
     msg = (
         f"Heat risk level: {decision['risk_tier'].upper()}. "
         f"Site has been above {decision['threshold_c']}°C for "
@@ -55,26 +47,39 @@ def _fallback_template(decision: dict, landcover_context: dict = None) -> str:
     return msg
 
 
-def _call_llm(decision: dict, landcover_context: dict = None) -> str:
-    """
-    Real LLM call — fill in once you've picked a provider.
-    Example structure for Anthropic's API (adjust for whichever you use):
+def _call_groq(decision: dict, landcover_context: dict = None) -> str:
+    from groq import Groq
 
-    import anthropic
-    client = anthropic.Anthropic(api_key=LLM_API_KEY)
-    prompt = f"Explain this construction-site heat alert in one plain sentence a site manager can act on: {decision}"
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=150,
-        messages=[{"role": "user", "content": prompt}],
+    client = Groq(api_key=GROQ_API_KEY)
+
+    context_line = ""
+    if landcover_context:
+        context_line = (
+            f" Land cover: {landcover_context.get('asphalt_pct')}% asphalt, "
+            f"{landcover_context.get('shade_pct')}% shade."
+        )
+
+    prompt = (
+        f"You are a construction-site heat safety assistant. Write ONE short, "
+        f"plain-language sentence a site manager can immediately act on, based on this data:\n"
+        f"Risk tier: {decision['risk_tier']}\n"
+        f"Threshold: {decision['threshold_c']}°C\n"
+        f"Continuous hours above threshold: {decision['persistence_hours']}\n"
+        f"Recommended action: {decision.get('recommended_response', '')}\n"
+        f"{context_line}\n"
+        f"Keep it under 30 words, no preamble."
     )
-    return response.content[0].text
-    """
-    raise NotImplementedError("Wire up your chosen LLM provider here.")
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100,
+        temperature=0.3,
+    )
+    return response.choices[0].message.content.strip()
 
 
 if __name__ == "__main__":
-    # quick manual test with a fake decision
     fake_decision = {
         "risk_tier": "high",
         "threshold_c": 38.0,
