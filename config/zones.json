@@ -1,32 +1,55 @@
 {
-  "note": "Approximate coordinates for demo purposes — pin exact GPS/address for each real site before final submission if possible.",
-  "zones": [
-    {
-      "id": "construction_downtown",
-      "name": "Downtown Phoenix Construction Corridor",
-      "worker_type": "construction",
-      "description": "High-rise / infrastructure construction area near downtown Phoenix",
-      "lat": 33.4484,
-      "lon": -112.0740,
-      "address_hint": "Near 1st Ave & Washington St, Phoenix, AZ"
+  "site_name": "Phoenix Construction Site - Demo",
+  "polygon_aoi": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {},
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                -112.0755,
+                33.4470
+              ],
+              [
+                -112.0725,
+                33.4470
+              ],
+              [
+                -112.0725,
+                33.4500
+              ],
+              [
+                -112.0755,
+                33.4500
+              ],
+              [
+                -112.0755,
+                33.4470
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "heat_threshold_celsius": 38.0,
+  "osha_tiers": {
+    "low": {
+      "max_persistence_hours": 1
     },
-    {
-      "id": "warehouse_westphx",
-      "name": "West Phoenix Industrial / Warehouse Corridor",
-      "worker_type": "warehouse_logistics",
-      "description": "Warehouse and loading dock district in West Phoenix / Tolleson",
-      "lat": 33.4736,
-      "lon": -112.2626,
-      "address_hint": "Near 91st Ave & Van Buren St, Tolleson, AZ"
+    "moderate": {
+      "max_persistence_hours": 3
     },
-    {
-      "id": "agriculture_southphx",
-      "name": "South Phoenix Agriculture / Landscaping Area",
-      "worker_type": "agriculture_landscaping",
-      "description": "Agricultural and landscaping operations near South Mountain",
-      "lat": 33.3773,
-      "lon": -112.0989,
-      "address_hint": "Near Baseline Rd & 7th Ave, Phoenix, AZ"
+    "high": {
+      "max_persistence_hours": 6
+    },
+    "extreme": {
+      "max_persistence_hours": null
     }
-  ]
+  },
+  "granularity_m": 60
 }
