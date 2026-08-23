@@ -18,7 +18,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fortyguard_client import FortyGuardClient
+from fortyguard import FortyGuardClient
 
 from insights.historical import (
     get_zone_exceedance,

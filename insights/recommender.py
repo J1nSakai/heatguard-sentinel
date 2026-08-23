@@ -21,7 +21,7 @@ from datetime import date, timedelta
 from statistics import mean
 
 from dotenv import load_dotenv
-from fortyguard_client.client import FortyGuardClient
+from fortyguard import FortyGuardClient
 
 from insights.historical import build_zone_polygon, load_all_zones, load_zone
 from insights.risk_scoring import run_risk_scoring_for_all_zones

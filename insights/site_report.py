@@ -11,7 +11,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
-from fortyguard_client.client import FortyGuardClient
+from fortyguard import FortyGuardClient
 
 from insights.historical import load_osha_threshold_celsius, load_zone
 from insights.recommender import build_daily_time_profile, recommend_safest_time

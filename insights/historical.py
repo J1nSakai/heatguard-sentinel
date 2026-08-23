@@ -14,12 +14,12 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fortyguard_client import FortyGuardClient
+from fortyguard import FortyGuardClient
 
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ZONES_PATH = REPO_ROOT / "config" / "zones.json"
+ZONES_PATH = REPO_ROOT / "config" / "multi_zones.json"
 THRESHOLDS_PATH = REPO_ROOT / "config" / "osha_thresholds.json"
 
 # ~300m box around the zone point. create_heatmap needs a polygon AOI,
