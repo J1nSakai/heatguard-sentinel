@@ -4,16 +4,36 @@ from fortyguard import FortyGuardClient
 
 client = FortyGuardClient()
 
-# apne teeno zones ke actual lat/lon daalo (jo zones.json mein hain)
-zones = {
-    "excavation": (33.4484, -112.0740),
-    "roofing": (33.4490, -112.0745),
-    "storage": (33.4478, -112.0738),
+# Polygon boundary covering all 3 zones + small buffer
+# (coordinates in [longitude, latitude] order — GeoJSON standard, note the order!)
+polygon_aoi = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [-112.0755, 33.4470],
+                    [-112.0725, 33.4470],
+                    [-112.0725, 33.4500],
+                    [-112.0755, 33.4500],
+                    [-112.0755, 33.4470],
+                ]]
+            }
+        }
+    ]
 }
 
-for name, (lat, lon) in zones.items():
-    result = client.environmental_parameters(
-        lat=lat, lon=lon,
-        start_date="2026-08-20", start_time="14:00", filter_type=1
-    )
-    print(name, result)
+result = client.create_heatmap(
+    polygon_aoi=polygon_aoi,
+    start_date="2026-08-19",
+    end_date="2026-08-20",
+    filter_type=4,              # range of days
+    granularity=60,
+    analytic_type="exceedance",
+    threshold=38.0,             # °C — OSHA-relevant high-risk threshold, adjust based on research
+    direction="above",
+)
+print(result)
