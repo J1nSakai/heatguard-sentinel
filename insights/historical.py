@@ -69,6 +69,9 @@ def build_zone_polygon(lat: float, lon: float, buffer_deg: float = BUFFER_DEG) -
     }
 
 
+from insights.schema_cache import get_or_fetch
+
+
 def get_zone_exceedance(
     client: FortyGuardClient,
     zone: dict,
@@ -76,25 +79,32 @@ def get_zone_exceedance(
     end_date: str,
     threshold_c: float,
     direction: str = "above",
-    granularity: int = 80,          # finest available tile size (60/80/100m) — was
-                                     # silently defaulting to the coarsest before
+    granularity: int = 80,
 ) -> dict:
     """
-    Pull exceedance-hours for one zone over a date range.
-    Returns the raw create_heatmap response (map_data + stats_data).
+    Pull exceedance-hours for one zone over a date range, via the cache.
+    Returns {"result": {"stats_data": ..., "map_data": ...}} shape,
+    either freshly fetched or replayed from a prior identical request.
     """
-    aoi = build_zone_polygon(zone["lat"], zone["lon"])
-    response = client.create_heatmap(
-        polygon_aoi=aoi,
-        start_date=start_date,
-        end_date=end_date,
-        filter_type=4,              # range of days
-        analytic_type="exceedance",
-        threshold=threshold_c,      # °C — same unit as tcm tile temps
-        direction=direction,
-        granularity=granularity,
+    def _fetch():
+        aoi = build_zone_polygon(zone["lat"], zone["lon"])
+        response = client.create_heatmap(
+            polygon_aoi=aoi,
+            start_date=start_date,
+            end_date=end_date,
+            filter_type=4,
+            analytic_type="exceedance",
+            threshold=threshold_c,
+            direction=direction,
+            granularity=granularity,
+        )
+        return response
+
+    return get_or_fetch(
+        zone_id=zone["id"], analytic_type="exceedance", threshold_c=threshold_c,
+        start_date=start_date, end_date=end_date, granularity=granularity,
+        fetch_fn=_fetch,
     )
-    return response
 
 
 def get_zone_persistence(
@@ -107,21 +117,28 @@ def get_zone_persistence(
     granularity: int = 80,
 ) -> dict:
     """
-    Pull longest-continuous-stretch data for one zone over a date range.
-    Same shape as get_zone_exceedance, different analytic_type.
+    Pull longest-continuous-stretch data for one zone over a date range,
+    via the cache. Same shape as get_zone_exceedance, different analytic_type.
     """
-    aoi = build_zone_polygon(zone["lat"], zone["lon"])
-    response = client.create_heatmap(
-        polygon_aoi=aoi,
-        start_date=start_date,
-        end_date=end_date,
-        filter_type=4,
-        analytic_type="persistence",
-        threshold=threshold_c,
-        direction=direction,
-        granularity=granularity,
+    def _fetch():
+        aoi = build_zone_polygon(zone["lat"], zone["lon"])
+        response = client.create_heatmap(
+            polygon_aoi=aoi,
+            start_date=start_date,
+            end_date=end_date,
+            filter_type=4,
+            analytic_type="persistence",
+            threshold=threshold_c,
+            direction=direction,
+            granularity=granularity,
+        )
+        return response
+
+    return get_or_fetch(
+        zone_id=zone["id"], analytic_type="persistence", threshold_c=threshold_c,
+        start_date=start_date, end_date=end_date, granularity=granularity,
+        fetch_fn=_fetch,
     )
-    return response
 
 
 def summarize_stats(response: dict) -> dict:
