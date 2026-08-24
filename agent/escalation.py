@@ -1,107 +1,133 @@
 """
 agent/escalation.py
 
-RECONCILED VERSION — now uses config/osha_thresholds.json (heat-index
-temperature ranges) for tier classification, matching Person B/C's
-insights/site_report.py, instead of the old persistence-duration-based
-TIERS dict.
+Real-time risk classification: pulls current apparent_temperature for a
+site, classifies it against config/osha_thresholds.json tiers, and
+decides whether to log or alert.
 
-Old tier logic (persistence hours) has been dropped to avoid two
-conflicting definitions of "risk tier" existing in the same project.
+Historical context (exceedance/persistence over the past week) is pulled
+via Person B's insights/historical.py functions — NOT re-implemented here,
+to avoid duplicate FortyGuard API calls and mismatched numbers between
+Person A and Person B's outputs.
 """
 
 import sys
-import os
 import json
-from datetime import datetime
-from agent.monitor import get_current_exceedance, get_persistence, simulate_breach
+from datetime import date, timedelta
+from pathlib import Path
+from fortyguard import FortyGuardClient
+
+from agent.monitor import get_current_conditions, simulate_conditions
 from agent.notifier import send_alert
 from agent.llm_phrasing import phrase_alert
+from insights.historical import (
+    load_zone,
+    load_osha_threshold_celsius,
+    get_zone_exceedance,
+    get_zone_persistence,
+    summarize_stats,
+)
 
-OSHA_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "osha_thresholds.json")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OSHA_PATH = REPO_ROOT / "config" / "osha_thresholds.json"
 
-with open(OSHA_CONFIG_PATH) as f:
-    OSHA_TIERS = json.load(f)  # list of {level, risk_label, heat_index_c_min, heat_index_c_max, guidance}
+OSHA_TIERS = json.loads(OSHA_PATH.read_text())["tiers"]
 
 
-def classify_by_heat_index(heat_index_c: float) -> dict:
-    """
-    Matches a heat index value against config/osha_thresholds.json tiers.
-    Returns the matching tier dict (level, risk_label, guidance).
-    """
+def classify_by_apparent_temp(apparent_temp_c: float) -> dict:
+    """Matches current apparent temperature against OSHA tier bands."""
     for tier in OSHA_TIERS:
         min_c = tier["heat_index_c_min"]
         max_c = tier["heat_index_c_max"]
-        if heat_index_c >= min_c and (max_c is None or heat_index_c < max_c):
+        if apparent_temp_c >= min_c and (max_c is None or apparent_temp_c < max_c):
             return tier
-    # fallback if nothing matches (shouldn't happen with well-formed config)
     return {"level": "unknown", "risk_label": "Unknown", "guidance": "Check manually."}
 
 
-def evaluate_site(simulate: bool = False, simulate_hours: float = 7.0,
-                   simulate_heat_index_c: float = 42.0) -> dict:
+def get_historical_context(zone: dict, days_back: int = 7) -> dict:
     """
-    simulate=True bypasses real API calls and injects fake high values —
-    for demo/rehearsal only.
-
-    NOTE: tier is now based on current heat_index_celsius (temperature),
-    not on persistence duration. Persistence/exceedance are still tracked
-    and reported, but they no longer drive the tier decision — they're
-    context, matching how Person B's site_report.py treats them.
+    Pulls exceedance/persistence over the past week using Person B's
+    cached functions — reused here (not duplicated) as context for the
+    alert, matching site_report.py's approach.
     """
-    exceedance_data = get_current_exceedance()
+    client = FortyGuardClient()
+    threshold_c = load_osha_threshold_celsius("high")  # 39.4°C Danger tier
 
+    end = date.today() - timedelta(days=1)
+    start = end - timedelta(days=days_back - 1)
+
+    exceedance = summarize_stats(get_zone_exceedance(
+        client=client, zone=zone,
+        start_date=start.isoformat(), end_date=end.isoformat(),
+        threshold_c=threshold_c,
+    ))
+    persistence = summarize_stats(get_zone_persistence(
+        client=client, zone=zone,
+        start_date=start.isoformat(), end_date=end.isoformat(),
+        threshold_c=threshold_c,
+    ))
+    return {"exceedance": exceedance, "persistence": persistence, "threshold_c": threshold_c}
+
+
+def evaluate_site(zone_id: str, simulate: bool = False,
+                   simulate_temp_c: float = 42.0,
+                   include_historical: bool = True) -> dict:
+    """
+    Core agent step for ONE site: get current conditions, classify tier,
+    decide action, optionally attach historical context, alert if needed.
+    """
     if simulate:
-        persistence_data = simulate_breach(persistence_hours=simulate_hours)
-        heat_index_c = simulate_heat_index_c
+        conditions = simulate_conditions(zone_id, apparent_temp_c=simulate_temp_c)
     else:
-        persistence_data = get_persistence()
-        # TODO: pull real current heat_index_c from monitor.py's env_params
-        # call once that's wired to also fetch heat_index_celsius. Placeholder
-        # for now — coordinate with Person B on where this should live.
-        heat_index_c = 35.0
+        conditions = get_current_conditions(zone_id)
 
-    persistence_hours = persistence_data["site_persistence_hours"]
-    tier = classify_by_heat_index(heat_index_c)
+    tier = classify_by_apparent_temp(conditions["apparent_temperature_c"])
 
     decision = {
-        "timestamp": datetime.now().isoformat(),
-        "exceedance_hours": exceedance_data["site_exceedance_hours"],
-        "persistence_hours": persistence_hours,
-        "heat_index_c": heat_index_c,
-        "risk_level": tier["level"],          # "lower" | "moderate" | "high" | "very_high"
-        "risk_label": tier["risk_label"],     # matches Person B's vocabulary
+        "zone_id": conditions["zone_id"],
+        "zone_name": conditions["zone_name"],
+        "timestamp": _now_iso(),
+        "apparent_temperature_c": conditions["apparent_temperature_c"],
+        "risk_level": tier["level"],
+        "risk_label": tier["risk_label"],
         "guidance": tier.get("guidance", ""),
         "action": None,
         "simulated": simulate,
     }
 
+    if include_historical and not simulate:
+        zone = load_zone(zone_id)
+        decision["historical_context"] = get_historical_context(zone)
+
     if tier["level"] == "lower":
         decision["action"] = "log_only"
     else:
         decision["action"] = "alert"
-        decision["explanation"] = phrase_alert_compat(decision)
+        decision["explanation"] = phrase_alert(_to_llm_shape(decision))
         send_alert(decision)
 
     return decision
 
 
-def phrase_alert_compat(decision: dict) -> str:
-    """
-    Adapts the new decision shape to what llm_phrasing.py's phrase_alert()
-    expects (recommended_response, risk_tier, threshold_c, persistence_hours).
-    Keeps llm_phrasing.py unchanged.
-    """
-    compat_decision = {
+def _to_llm_shape(decision: dict) -> dict:
+    """Adapts the decision dict to what llm_phrasing.py's phrase_alert() expects."""
+    return {
         "risk_tier": decision["risk_level"],
-        "threshold_c": decision["heat_index_c"],
-        "persistence_hours": decision["persistence_hours"],
+        "threshold_c": decision["apparent_temperature_c"],
+        "persistence_hours": decision.get("historical_context", {})
+                                       .get("persistence", {})
+                                       .get("mean_hours", 0.0),
         "recommended_response": decision["guidance"],
     }
-    return phrase_alert(compat_decision)
+
+
+def _now_iso() -> str:
+    from datetime import datetime
+    return datetime.now().isoformat()
 
 
 if __name__ == "__main__":
     simulate_mode = "--simulate" in sys.argv
-    result = evaluate_site(simulate=simulate_mode)
+    zone_id = sys.argv[sys.argv.index("--zone") + 1] if "--zone" in sys.argv else "construction_downtown"
+    result = evaluate_site(zone_id, simulate=simulate_mode, include_historical=not simulate_mode)
     print(result)
