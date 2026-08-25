@@ -20,17 +20,19 @@ from insights.risk_scoring import build_zone_risk_profile
 load_dotenv()
 
 
-def generate_site_report(zone_id: str, window_days: int = 7, profile_days: int = 3) -> dict:
+def generate_site_report(zone: dict, window_days: int = 7, profile_days: int = 3) -> dict:
     """
     Builds the full picture for one site:
       - exceedance + persistence over the last `window_days`
       - safest time of day, based on the last `profile_days`
 
+    `zone` just needs id, name, worker_type, lat, lon — works equally for a
+    freshly pinned map location or one of the pre-loaded demo zones.
+
     All underlying calls go through the cache (schema_cache.py), so calling
     this repeatedly for the same zone/window costs nothing after the first run.
     """
     client = FortyGuardClient()
-    zone = load_zone(zone_id)
     threshold_c = load_osha_threshold_celsius("high")
 
     end = date.today() - timedelta(days=1)
@@ -78,7 +80,13 @@ def generate_site_report(zone_id: str, window_days: int = 7, profile_days: int =
     }
 
 
+def generate_site_report_by_id(zone_id: str, window_days: int = 7, profile_days: int = 3) -> dict:
+    """Convenience wrapper for the pre-loaded demo zones in config/zones.json."""
+    zone = load_zone(zone_id)
+    return generate_site_report(zone, window_days=window_days, profile_days=profile_days)
+
+
 if __name__ == "__main__":
-    report = generate_site_report("construction_downtown")
+    report = generate_site_report_by_id("construction_downtown")
     print("\n=== Site Report ===")
     print(json.dumps(report, indent=2))
