@@ -52,14 +52,18 @@ def load_zone(zone_id: str) -> dict:
     raise ValueError(f"Zone '{zone_id}' not found in {ZONES_PATH}")
 
 
-def _phoenix_now_date_time(buffer_minutes: int = 10) -> tuple[str, str]:
+def _phoenix_now_date_time(buffer_minutes: int = 10, days_lag: int = 2) -> tuple[str, str]:
     """
-    Returns (date_str, time_str) for Phoenix's current local time, minus a
-    small buffer, so the request is safely in the past relative to the
-    site's own clock — regardless of what timezone this script runs from.
+    Returns (date_str, time_str) for Phoenix's local time, offset back by
+    `days_lag` days, with time_str ROUNDED DOWN to the nearest hour.
+
+    Confirmed via testing: the API only returns data at clean hour
+    boundaries (e.g. "14:00") — arbitrary minute-level times (e.g. "15:49")
+    return empty parameter arrays even on dates that otherwise have data.
     """
-    phoenix_now = datetime.now(PHOENIX_OFFSET) - timedelta(minutes=buffer_minutes)
-    return phoenix_now.strftime("%Y-%m-%d"), phoenix_now.strftime("%H:%M")
+    phoenix_now = datetime.now(PHOENIX_OFFSET) - timedelta(days=days_lag, minutes=buffer_minutes)
+    rounded_hour = phoenix_now.replace(minute=0, second=0, microsecond=0)
+    return rounded_hour.strftime("%Y-%m-%d"), rounded_hour.strftime("%H:%M")
 
 
 def get_current_conditions(zone_id: str, anchor_temp_c: float = DEFAULT_ANCHOR_TEMP_C,
