@@ -16,8 +16,10 @@ Two ways a report gets requested, matching the finalized user flow
 import json
 from pathlib import Path
 
+import requests
 from fastapi import APIRouter, HTTPException
 
+from fortyguard.exceptions import FortyGuardError, TaskTimeoutError
 from insights.site_report import generate_site_report, generate_site_report_by_id
 from api.models.pinned_location import PinnedLocation
 
@@ -28,7 +30,49 @@ ZONES_PATH = REPO_ROOT / "config" / "multi_zones.json"
 ALERTS_LOG_PATH = REPO_ROOT / "data" / "logs" / "alerts.jsonl"
 
 
+def _safe_report(build_report, *args, **kwargs) -> dict:
+    """
+    Runs a report builder and converts upstream FortyGuard failures into
+    proper HTTP errors instead of letting them surface as an unhandled 500
+    with a raw traceback.
 
+    Observed for real during testing: the FortyGuard API dropped the
+    connection mid-report twice (DNS resolution failure, then
+    RemoteDisconnected). Without this, the frontend gets a 500 and no
+    usable message — bad on stage, and Person C can't tell "retry this"
+    apart from "your request was wrong".
+
+    Status codes chosen so the frontend can decide what to do:
+      503 -> transient, safe to retry (network dropped, or task timed out)
+      502 -> upstream API returned an actual error (retrying won't help much)
+    Both include a human-readable `detail` for display.
+    """
+    try:
+        return build_report(*args, **kwargs)
+    except requests.exceptions.RequestException as exc:
+        # Network-level: DNS failure, connection reset, read timeout.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Could not reach the FortyGuard API (network error). "
+                "This is usually transient — please retry."
+            ),
+        ) from exc
+    except TaskTimeoutError as exc:
+        # Caught before FortyGuardError — TaskTimeoutError subclasses it.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The FortyGuard analysis did not finish in time. "
+                "Please retry — partial results are already cached, so a "
+                "retry will be faster."
+            ),
+        ) from exc
+    except FortyGuardError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"FortyGuard API error: {exc}",
+        ) from exc
 
 
 @router.get("")
@@ -42,10 +86,18 @@ def list_zones():
 @router.get("/{zone_id}/report")
 def get_zone_report(zone_id: str, window_days: int = 7, profile_days: int = 3):
     """Full site report for one of the pre-loaded demo zones."""
-    try:
-        return generate_site_report_by_id(zone_id, window_days=window_days, profile_days=profile_days)
-    except ValueError:
+    # Unknown zone_id is a client error (404) and must not be swallowed by
+    # _safe_report's upstream-failure handling, so it's resolved separately.
+    zones = json.loads(ZONES_PATH.read_text())["zones"]
+    if not any(z["id"] == zone_id for z in zones):
         raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
+
+    return _safe_report(
+        generate_site_report_by_id,
+        zone_id,
+        window_days=window_days,
+        profile_days=profile_days,
+    )
 
 
 @router.post("/report")
@@ -62,7 +114,12 @@ def get_pinned_report(location: PinnedLocation):
         "lat": location.lat,
         "lon": location.lon,
     }
-    return generate_site_report(zone, window_days=location.window_days, profile_days=location.profile_days)
+    return _safe_report(
+        generate_site_report,
+        zone,
+        window_days=location.window_days,
+        profile_days=location.profile_days,
+    )
 
 
 @router.get("/{zone_id}/alerts")
@@ -76,10 +133,11 @@ def get_zone_alerts(zone_id: str, limit: int = 50):
     Reads data/logs/alerts.jsonl (one JSON decision object per line, per
     shared/schema.py) and returns entries matching this zone.
 
-    KNOWN GAP: the decision object shape in shared/schema.py doesn't
-    currently include a zone identifier field (no "zone_id" or "site_name"
-    listed). This checks both, defensively, but will return nothing until
-    Person A adds one — worth confirming with them directly.
+    The zone-identifier gap is resolved: agent/escalation.py now writes both
+    `zone_id` and `zone_name` into every decision object, so the filter below
+    works. `site_name` is still checked as a fallback for any older entries.
+    Returns [] until the agent has actually fired an alert above the "lower"
+    tier — the log file doesn't exist before then.
     """
     if not ALERTS_LOG_PATH.exists():
         return {"zone_id": zone_id, "alerts": []}

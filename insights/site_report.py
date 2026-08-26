@@ -1,8 +1,8 @@
 """
 insights/site_report.py
-Person B — combines everything from historical.py, risk_scoring.py, and
-recommender.py into one clean report per site. This is the shape
-api/routes/zones.py should hand back for GET /zones/{id}/history.
+Person B — combines everything from historical.py, risk_scoring.py,
+recommender.py, and landcover.py into one clean report per site. This is
+the shape api/routes/zones.py hands back for GET /zones/{id}/report.
 
 Run with:  python -m insights.site_report
 """
@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from fortyguard import FortyGuardClient
 
 from insights.historical import load_osha_threshold_celsius, load_zone
+from insights.landcover import get_zone_landcover_summary
 from insights.recommender import build_daily_time_profile, recommend_safest_time
 from insights.risk_scoring import build_zone_risk_profile
 
@@ -25,6 +26,7 @@ def generate_site_report(zone: dict, window_days: int = 7, profile_days: int = 3
     Builds the full picture for one site:
       - exceedance + persistence over the last `window_days`
       - safest time of day, based on the last `profile_days`
+      - why_hot: land-cover breakdown explaining the heat
 
     `zone` just needs id, name, worker_type, lat, lon — works equally for a
     freshly pinned map location or one of the pre-loaded demo zones.
@@ -54,6 +56,15 @@ def generate_site_report(zone: dict, window_days: int = 7, profile_days: int = 3
         block_id, label, temp = ranked_blocks[0]
         safest_block = {"block_id": block_id, "label": label, "avg_temp_c": temp}
 
+    # Land cover is a nice-to-have explanation layer, not core risk data —
+    # if satellite coverage is missing for a pinned coordinate, the report
+    # should still return with exceedance/persistence/safest-time intact.
+    why_hot = None
+    try:
+        why_hot = get_zone_landcover_summary(client, zone, end.isoformat())
+    except Exception as exc:
+        print(f"  [warn] land cover unavailable for {zone['id']}: {exc}")
+
     return {
         "zone_id": zone["id"],
         "zone_name": zone["name"],
@@ -77,6 +88,7 @@ def generate_site_report(zone: dict, window_days: int = 7, profile_days: int = 3
             ],
             "safest_block": safest_block,
         },
+        "why_hot": why_hot,
     }
 
 
