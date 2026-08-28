@@ -122,37 +122,38 @@ def get_pinned_report(location: PinnedLocation):
     )
 
 
-@router.get("/{zone_id}/alerts")
-def get_zone_alerts(zone_id: str, limit: int = 50):
+from pydantic import BaseModel
+from typing import Optional
+from agent.escalation import evaluate_site
+ 
+ 
+class CheckZoneRequest(BaseModel):
+    recipient_email: Optional[str] = None   # site manager's email, from frontend
+    simulate: bool = False                   # demo-safety: force a test alert
+    simulate_temp_c: float = 42.0
+ 
+ 
+@router.post("/{zone_id}/check")
+def check_zone_now(zone_id: str, body: CheckZoneRequest = CheckZoneRequest()):
     """
-    Person A's real-time alert log — kept as a SEPARATE endpoint from
-    /report (which is B's computed historical pattern data), since these
-    are two different kinds of data: a log of past alert events vs. a
-    freshly computed analysis.
-
-    Reads data/logs/alerts.jsonl (one JSON decision object per line, per
-    shared/schema.py) and returns entries matching this zone.
-
-    The zone-identifier gap is resolved: agent/escalation.py now writes both
-    `zone_id` and `zone_name` into every decision object, so the filter below
-    works. `site_name` is still checked as a fallback for any older entries.
-    Returns [] until the agent has actually fired an alert above the "lower"
-    tier — the log file doesn't exist before then.
+    Triggers a live agent evaluation for this zone right now.
+ 
+    - Pulls current apparent_temperature (or simulates it, for demo safety)
+    - Classifies against OSHA tiers
+    - If risk tier warrants it, fires an alert: writes to alerts.jsonl AND
+      emails `recipient_email` (falls back to .env default if not given)
+    - Returns the full decision object (same shape logged to alerts.jsonl)
     """
-    if not ALERTS_LOG_PATH.exists():
-        return {"zone_id": zone_id, "alerts": []}
-
-    alerts = []
-    with open(ALERTS_LOG_PATH, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # skip malformed lines rather than fail the whole request
-            if entry.get("zone_id") == zone_id or entry.get("site_name") == zone_id:
-                alerts.append(entry)
-
-    return {"zone_id": zone_id, "alerts": alerts[-limit:]}
+    zones = json.loads(ZONES_PATH.read_text())["zones"]
+    if not any(z["id"] == zone_id for z in zones):
+        raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
+ 
+    return _safe_report(
+        evaluate_site,
+        zone_id,
+        simulate=body.simulate,
+        simulate_temp_c=body.simulate_temp_c,
+        recipient_email=body.recipient_email,
+        include_historical=not body.simulate,
+    )
+ 

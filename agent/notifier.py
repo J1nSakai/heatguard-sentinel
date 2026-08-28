@@ -1,18 +1,15 @@
 """
-agent/notifier.py — UPDATED with email alerts
+agent/notifier.py
 
 Fires alerts when escalation.py decides risk warrants one:
-1. Logs to local JSON file (existing behavior)
-2. NEW: sends an email to the site manager via Gmail SMTP
+1. Logs to local JSON file
+2. Sends an email — to `recipient_email` if given (e.g. from the frontend/
+   API request), otherwise falls back to ALERT_EMAIL_TO in .env
 
 Setup required in .env:
     ALERT_EMAIL_FROM=your_gmail_address@gmail.com
-    ALERT_EMAIL_APP_PASSWORD=your_16_char_gmail_app_password   # NOT your normal password
-    ALERT_EMAIL_TO=site_manager@example.com
-
-Gmail requires an "App Password" (not your regular password) for SMTP.
-Generate one at: https://myaccount.google.com/apppasswords
-(Requires 2-Step Verification enabled on the Gmail account first.)
+    ALERT_EMAIL_APP_PASSWORD=your_16_char_gmail_app_password
+    ALERT_EMAIL_TO=default_fallback_email@example.com   # used if no recipient_email passed in
 """
 
 import json
@@ -28,13 +25,16 @@ LOG_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "logs", "alerts
 
 EMAIL_FROM = os.getenv("ALERT_EMAIL_FROM")
 EMAIL_APP_PASSWORD = os.getenv("ALERT_EMAIL_APP_PASSWORD")
-EMAIL_TO = os.getenv("ALERT_EMAIL_TO")
+EMAIL_TO_DEFAULT = os.getenv("ALERT_EMAIL_TO")
 
 
-def send_alert(decision: dict) -> None:
+def send_alert(decision: dict, recipient_email: str = None) -> None:
     """
     Called by escalation.py when action == "alert".
-    Logs to file AND emails the site manager, if email config is present.
+
+    recipient_email: dynamic recipient (e.g. site manager's email from the
+    frontend). Falls back to ALERT_EMAIL_TO in .env if not provided —
+    keeps this working for local/CLI testing without a frontend attached.
     """
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 
@@ -48,12 +48,14 @@ def send_alert(decision: dict) -> None:
     print(f"[ALERT FIRED] {decision['timestamp']} — "
           f"zone={zone_name} — risk={risk_label} — {guidance}")
 
-    _send_email_alert(decision, zone_name, risk_label, guidance)
+    to_email = recipient_email or EMAIL_TO_DEFAULT
+    _send_email_alert(decision, zone_name, risk_label, guidance, to_email)
 
 
-def _send_email_alert(decision: dict, zone_name: str, risk_label: str, guidance: str) -> None:
-    if not all([EMAIL_FROM, EMAIL_APP_PASSWORD, EMAIL_TO]):
-        print("[notifier] Email not configured (missing .env values) — skipping email, log-only.")
+def _send_email_alert(decision: dict, zone_name: str, risk_label: str,
+                       guidance: str, to_email: str) -> None:
+    if not all([EMAIL_FROM, EMAIL_APP_PASSWORD, to_email]):
+        print("[notifier] Email not configured or no recipient — skipping email, log-only.")
         return
 
     subject = f"⚠️ Heat Safety Alert — {zone_name} — {risk_label}"
@@ -71,13 +73,13 @@ def _send_email_alert(decision: dict, zone_name: str, risk_label: str, guidance:
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
+    msg["To"] = to_email
 
     try:
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(EMAIL_FROM, EMAIL_APP_PASSWORD)
-            server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
-        print(f"[notifier] Email alert sent to {EMAIL_TO}")
+            server.sendmail(EMAIL_FROM, [to_email], msg.as_string())
+        print(f"[notifier] Email alert sent to {to_email}")
     except Exception as e:
         print(f"[notifier] Email send failed ({e}) — alert still logged locally.")

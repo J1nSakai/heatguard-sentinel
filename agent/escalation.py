@@ -6,9 +6,7 @@ site, classifies it against config/osha_thresholds.json tiers, and
 decides whether to log or alert.
 
 Historical context (exceedance/persistence over the past week) is pulled
-via Person B's insights/historical.py functions — NOT re-implemented here,
-to avoid duplicate FortyGuard API calls and mismatched numbers between
-Person A and Person B's outputs.
+via Person B's insights/historical.py functions — NOT re-implemented here.
 """
 
 import sys
@@ -35,7 +33,6 @@ OSHA_TIERS = json.loads(OSHA_PATH.read_text())["tiers"]
 
 
 def classify_by_apparent_temp(apparent_temp_c: float) -> dict:
-    """Matches current apparent temperature against OSHA tier bands."""
     for tier in OSHA_TIERS:
         min_c = tier["heat_index_c_min"]
         max_c = tier["heat_index_c_max"]
@@ -45,13 +42,8 @@ def classify_by_apparent_temp(apparent_temp_c: float) -> dict:
 
 
 def get_historical_context(zone: dict, days_back: int = 7) -> dict:
-    """
-    Pulls exceedance/persistence over the past week using Person B's
-    cached functions — reused here (not duplicated) as context for the
-    alert, matching site_report.py's approach.
-    """
     client = FortyGuardClient()
-    threshold_c = load_osha_threshold_celsius("high")  # 39.4°C Danger tier
+    threshold_c = load_osha_threshold_celsius("high")
 
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=days_back - 1)
@@ -71,10 +63,15 @@ def get_historical_context(zone: dict, days_back: int = 7) -> dict:
 
 def evaluate_site(zone_id: str, simulate: bool = False,
                    simulate_temp_c: float = 42.0,
-                   include_historical: bool = True) -> dict:
+                   include_historical: bool = True,
+                   recipient_email: str = None) -> dict:
     """
-    Core agent step for ONE site: get current conditions, classify tier,
-    decide action, optionally attach historical context, alert if needed.
+    Core agent step for ONE site.
+
+    recipient_email: dynamic alert recipient (e.g. from a frontend request
+    via api/routes/zones.py's POST /zones/{zone_id}/check). If not given,
+    notifier.py falls back to ALERT_EMAIL_TO in .env — keeps this callable
+    from the CLI/tests without a frontend attached.
     """
     if simulate:
         conditions = simulate_conditions(zone_id, apparent_temp_c=simulate_temp_c)
@@ -104,13 +101,12 @@ def evaluate_site(zone_id: str, simulate: bool = False,
     else:
         decision["action"] = "alert"
         decision["explanation"] = phrase_alert(_to_llm_shape(decision))
-        send_alert(decision)
+        send_alert(decision, recipient_email=recipient_email)
 
     return decision
 
 
 def _to_llm_shape(decision: dict) -> dict:
-    """Adapts the decision dict to what llm_phrasing.py's phrase_alert() expects."""
     return {
         "risk_tier": decision["risk_level"],
         "threshold_c": decision["apparent_temperature_c"],
