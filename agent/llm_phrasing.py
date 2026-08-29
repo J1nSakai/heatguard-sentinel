@@ -12,7 +12,6 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-print("SCRIPT STARTED")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
@@ -33,10 +32,17 @@ def phrase_alert(decision: dict, landcover_context: dict = None) -> str:
 
 
 def _fallback_template(decision: dict, landcover_context: dict = None) -> str:
+    # persistence_hours can be 0.0 as a stand-in for "unmeasured" (see
+    # escalation._to_llm_shape) — don't assert a duration we don't have.
+    hours = decision.get("persistence_hours")
+    if hours:
+        duration = f"Site has been above {decision['threshold_c']}°C for {hours:.1f} continuous hours. "
+    else:
+        duration = f"Current conditions are above {decision['threshold_c']}°C. "
+
     msg = (
         f"Heat risk level: {decision['risk_tier'].upper()}. "
-        f"Site has been above {decision['threshold_c']}°C for "
-        f"{decision['persistence_hours']:.1f} continuous hours. "
+        f"{duration}"
         f"Recommended action: {decision.get('recommended_response', 'Monitor conditions.')}"
     )
     if landcover_context:

@@ -31,10 +31,14 @@ EMAIL_APP_PASSWORD = os.getenv("ALERT_EMAIL_APP_PASSWORD")
 EMAIL_TO = os.getenv("ALERT_EMAIL_TO")
 
 
-def send_alert(decision: dict) -> None:
+def send_alert(decision: dict, recipient: str = None) -> None:
     """
     Called by escalation.py when action == "alert".
     Logs to file AND emails the site manager, if email config is present.
+
+    `recipient` overrides ALERT_EMAIL_TO — used by alert subscriptions so a
+    manager who subscribed to their own pinned site gets the email, rather
+    than whoever is configured globally in .env.
     """
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 
@@ -48,11 +52,18 @@ def send_alert(decision: dict) -> None:
     print(f"[ALERT FIRED] {decision['timestamp']} — "
           f"zone={zone_name} — risk={risk_label} — {guidance}")
 
-    _send_email_alert(decision, zone_name, risk_label, guidance)
+    _send_email_alert(decision, zone_name, risk_label, guidance, recipient=recipient)
 
 
-def _send_email_alert(decision: dict, zone_name: str, risk_label: str, guidance: str) -> None:
-    if not all([EMAIL_FROM, EMAIL_APP_PASSWORD, EMAIL_TO]):
+def _send_email_alert(
+    decision: dict,
+    zone_name: str,
+    risk_label: str,
+    guidance: str,
+    recipient: str = None,
+) -> None:
+    to_address = recipient or EMAIL_TO
+    if not all([EMAIL_FROM, EMAIL_APP_PASSWORD, to_address]):
         print("[notifier] Email not configured (missing .env values) — skipping email, log-only.")
         return
 
@@ -71,13 +82,13 @@ def _send_email_alert(decision: dict, zone_name: str, risk_label: str, guidance:
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
+    msg["To"] = to_address
 
     try:
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(EMAIL_FROM, EMAIL_APP_PASSWORD)
-            server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
-        print(f"[notifier] Email alert sent to {EMAIL_TO}")
+            server.sendmail(EMAIL_FROM, [to_address], msg.as_string())
+        print(f"[notifier] Email alert sent to {to_address}")
     except Exception as e:
         print(f"[notifier] Email send failed ({e}) — alert still logged locally.")

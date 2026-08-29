@@ -75,6 +75,41 @@ Internal to Person A; escalation.py consumes it, nobody else needs to.
 Exactly the decision object above, one JSON object per line (JSONL).
 Person B's GET /zones/{zone_id}/alerts reads this file and filters on
 `zone_id`, so that field must keep being written for the endpoint to work.
+GET /alerts serves the same file unfiltered, newest first, for the
+frontend's Alerts tab.
+
+--- Alert subscription (agent/subscriptions.py -> data/subscriptions.json) ---
+OPTIONAL feature: a manager who pinned a spot can ask to be emailed when
+that coordinate's LIVE tier reaches their threshold. Storage is one JSON
+file (gitignored), no database.
+{
+    "id": str,             # 12-hex, e.g. "6e5e2b892a07"
+    "lat": float, "lon": float,
+    "name": str,           # user's label, e.g. "North lot excavation"
+    "worker_type": str,
+    "email": str,
+    "min_tier": str,       # "lower" | "moderate" | "high" | "very_high"
+                           # Alert fires when the live tier is at or ABOVE
+                           # this. Default "moderate" — "lower" would email
+                           # on merely warm days and train people to ignore
+                           # the alerts.
+    "created_at": str,     # ISO 8601 UTC
+    "last_checked_at": str | None,
+    "last_alert_at": str | None,
+}
+Same email + same coordinate is treated as an UPDATE, not a second
+subscription (double-clicking the button shouldn't double the emails).
+
+Evaluation reuses Person A's classifier via
+agent/escalation.py -> evaluate_pinned_zone(), which differs from
+evaluate_site() only in taking a zone DICT (a pinned point isn't in
+multi_zones.json), honouring `min_tier`, and routing the email to the
+subscriber instead of the global ALERT_EMAIL_TO. Subscription checks skip
+historical context by default — that's the expensive part, and the alert
+only needs the current reading.
+
+The polling pass is agent/run_subscriptions.py (one pass then exit, meant
+for cron / Task Scheduler — no daemon to babysit during the demo).
 
 =============================================================================
 PERSON B — insights/ (served by api/)
@@ -84,13 +119,35 @@ PERSON B — insights/ (served by api/)
 Shared by exceedance and persistence — same shape for both.
 {
     "units": str,        # "hour"
-    "n_cells": int,      # tiles in the AOI, e.g. 16
-    "min_hours": float,
-    "max_hours": float,
-    "mean_hours": float,
+    "n_cells": int,      # tiles in the AOI, e.g. 16 (0 when unmeasured)
+    "min_hours": float | None,
+    "max_hours": float | None,
+    "mean_hours": float | None,
+    "no_coverage": bool, # True when the API returned no tiles at all
 }
 Identical min/max/mean is normal, not a bug — verified for dense uniform
 urban blocks via extreme-threshold tests and per-tile inspection.
+
+COVERAGE GAPS — important. FortyGuard's heat tiles are patchy: a pinned
+coordinate can return n_cells=0 while a point ~2km away has 16 cells
+(observed for real: 33.4376,-112.0457 empty vs 33.4484,-112.074 full). In
+that degraded case stats_data is just {"activity_id": ..., "n_cells": 0}
+with NO units/min/max/mean, and map_data.features is empty.
+
+Two deliberate responses to that:
+
+1. AOI WIDENING (insights/historical.py AOI_LADDER_DEG). On a miss, the
+   same point is retried with a bigger box: ~330m -> ~1000m -> ~3000m.
+   Most "empty" pins resolve at a wider radius, so the user still gets a
+   real answer about their site. The radius actually used is reported in
+   the site report's `aoi` field. Each radius caches separately; the
+   default radius keeps its bare cache key so pre-existing cache files
+   still hit.
+
+2. HONEST NULLS. If every radius is empty, the hour fields are None and
+   no_coverage is True. They are NOT zeroed. Zero would render as "0% time
+   in danger" / "Lower Risk Pattern" — i.e. telling a site manager that an
+   unmeasured site is safe. Every consumer must treat None as UNKNOWN.
 
 Exceedance = total hours above threshold across the window.
 Persistence = longest UNBROKEN stretch above threshold. Both matter: 52
@@ -115,14 +172,26 @@ POST /zones/report. Real example values shown.
     "threshold_c": float,         # 39.4
     "exceedance":  <stats summary>,   # e.g. mean_hours 52.0
     "persistence": <stats summary>,   # e.g. mean_hours 8.0
-    "pct_time_in_danger": float,      # exceedance.mean_hours / (window_days*24) * 100
+    "pct_time_in_danger": float | None,  # exceedance.mean_hours /
+                                  # (window_days*24) * 100. None when
+                                  # no_coverage — do NOT render as 0%.
     "risk_label": str,            # "Consistently High Risk" (>=30%)
                                   # "Moderate Risk Pattern"  (>=12%)
                                   # "Lower Risk Pattern"     (<12%)
+                                  # "No Data For This Location" (no_coverage)
                                   # NOTE: distinct from the OSHA risk_label
                                   # above — this describes a WEEK-LONG
                                   # PATTERN, not a current tier. Different
                                   # question, deliberately different words.
+    "no_coverage": bool,          # True -> the site is UNASSESSED, not safe.
+                                  # Frontend shows a neutral grey banner and
+                                  # tells the user to try a nearby pin.
+    "aoi": {                      # which area the numbers actually describe
+        "box_metres": int,        # 330 | 1000 | 3000
+        "widened": bool,          # True -> the exact pin had no tiles, so a
+                                  # larger box was used. Surface this, since
+                                  # the figures are then an area average.
+    },
     "time_of_day": {
         "profile_dates": [str],   # the individual days averaged together
         "ranked_blocks": [        # COOLEST FIRST — [0] is the recommendation
@@ -143,6 +212,12 @@ POST /zones/report. Real example values shown.
         "impervious_pct": float,  # buildings/roads/pavement/bare ground
         "vegetation_pct": float,  # trees/plants/grass
         "other_pct": float,       # matched no keyword bucket
+        "unclassified_dominant": bool,  # other_pct >= 50 -> the buckets can't
+                                  # support a conclusion; `explanation` hedges
+                                  # instead of guessing (a pin returning
+                                  # 82.3% "others" previously claimed
+                                  # "meaningful vegetation (1.0%) ... helps
+                                  # moderate heat", which was flatly wrong)
         "explanation": str,       # plain-English, e.g. "This zone is dominated
                                   # by pavement and buildings (97.7% impervious
                                   # surface), which retain and radiate heat..."
@@ -175,6 +250,27 @@ POST /zones/report              -> <site report>   the real "click the map" path
 GET  /zones/{zone_id}/alerts    -> {"zone_id": str, "alerts": [<decision object>, ...]}
      ?limit=50                     Person A's log. Returns [] until alerts.jsonl
                                    exists. Newest `limit` entries.
+
+--- Alerts + optional subscriptions (api/routes/alerts.py) ---
+GET    /alerts                        -> {"alerts": [<decision object>, ...], "count": int}
+       ?limit=50&zone_id=...             Newest first. [] until the agent alerts.
+GET    /alerts/subscriptions           -> {"subscriptions": [<subscription>, ...]}
+POST   /alerts/subscriptions           -> <subscription>   201
+       body: {"lat": float, "lon": float, "email": str,
+              "name": str = "Pinned Site",
+              "worker_type": str = "unspecified",
+              "min_tier": str = "moderate"}
+       422 on a malformed email or an unknown min_tier.
+DELETE /alerts/subscriptions/{id}      -> {"deleted": id}   404 if unknown
+POST   /alerts/subscriptions/{id}/check -> <decision object>  404 if unknown
+       ?simulate=true&simulate_temp_c=42
+       Evaluates ONE subscription immediately and emails if the tier is met.
+       Powers the UI's "Test" button and makes the alert path demonstrable
+       without waiting for the scheduled pass. `simulate=true` skips the live
+       API call (demo safety net), and marks the logged entry simulated: true.
+
+Subscriptions are storage only — the endpoint does not start a poller.
+agent/run_subscriptions.py is the scheduled pass that actually sends mail.
 
 /report (B's computed historical analysis) and /alerts (A's log of past
 events) are deliberately separate endpoints — two different kinds of data.

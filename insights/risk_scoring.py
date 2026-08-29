@@ -21,8 +21,10 @@ from dotenv import load_dotenv
 from fortyguard import FortyGuardClient
 
 from insights.historical import (
-    get_zone_exceedance,
-    get_zone_persistence,
+    AOI_LADDER_DEG,
+    BUFFER_DEG,
+    _deg_to_box_metres,
+    get_zone_analytic_with_widening,
     load_all_zones,
     load_osha_threshold_celsius,
     summarize_stats,
@@ -35,6 +37,12 @@ LOG_DIR = REPO_ROOT / "data" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 WINDOW_DAYS = 7
+
+# Used when the API has no tiles anywhere in the AOI ladder. Deliberately
+# NOT one of the three risk tiers — "we couldn't measure this" is a
+# different statement from "this is low risk", and must never render as
+# a reassuring result.
+NO_DATA_LABEL = "No Data For This Location"
 
 
 def score_risk_label(pct_time_in_danger: float) -> str:
@@ -56,19 +64,35 @@ def build_zone_risk_profile(
     end_date: str,
     window_hours: int,
 ) -> dict:
-    exceedance_resp = get_zone_exceedance(
-        client=client, zone=zone, start_date=start_date, end_date=end_date,
-        threshold_c=threshold_c,
+    # Both calls widen the AOI on a coverage miss, so a pinned point that
+    # falls in a tile gap still yields usable numbers from a larger box
+    # around the same spot.
+    exceedance_resp, exc_buffer = get_zone_analytic_with_widening(
+        client=client, zone=zone, analytic_type="exceedance",
+        start_date=start_date, end_date=end_date, threshold_c=threshold_c,
     )
-    persistence_resp = get_zone_persistence(
-        client=client, zone=zone, start_date=start_date, end_date=end_date,
-        threshold_c=threshold_c,
+    persistence_resp, per_buffer = get_zone_analytic_with_widening(
+        client=client, zone=zone, analytic_type="persistence",
+        start_date=start_date, end_date=end_date, threshold_c=threshold_c,
     )
 
     exceedance = summarize_stats(exceedance_resp)
     persistence = summarize_stats(persistence_resp)
 
-    pct_time_in_danger = round((exceedance["mean_hours"] / window_hours) * 100, 1)
+    no_coverage = exceedance["no_coverage"]
+
+    # mean_hours is None when unmeasured — do NOT coerce to 0, that would
+    # report an unmeasured site as 0% time in danger.
+    if no_coverage:
+        pct_time_in_danger = None
+        risk_label = NO_DATA_LABEL
+    else:
+        pct_time_in_danger = round((exceedance["mean_hours"] / window_hours) * 100, 1)
+        risk_label = score_risk_label(pct_time_in_danger)
+
+    # Widest radius actually used across the two calls, reported so the UI
+    # can say "averaged over a ~900m area" when it wasn't the default box.
+    used_buffer = max(exc_buffer, per_buffer)
 
     return {
         "zone_id": zone["id"],
@@ -79,7 +103,12 @@ def build_zone_risk_profile(
         "exceedance": exceedance,
         "persistence": persistence,
         "pct_time_in_danger": pct_time_in_danger,
-        "risk_label": score_risk_label(pct_time_in_danger),
+        "risk_label": risk_label,
+        "no_coverage": no_coverage,
+        "aoi": {
+            "box_metres": _deg_to_box_metres(used_buffer),
+            "widened": used_buffer != BUFFER_DEG,
+        },
     }
 
 
@@ -114,11 +143,14 @@ def print_summary_table(profiles: list) -> None:
     print("\n--- Zone Risk Summary ---")
     print(f"{'Zone':<35} {'Mean hrs/wk':<12} {'Longest run':<13} {'% time danger':<15} {'Risk label'}")
     for p in profiles:
+        exc = p["exceedance"]["mean_hours"]
+        per = p["persistence"]["mean_hours"]
+        pct = p["pct_time_in_danger"]
         print(
             f"{p['zone_name']:<35} "
-            f"{p['exceedance']['mean_hours']:<12} "
-            f"{p['persistence']['mean_hours']:<13} "
-            f"{p['pct_time_in_danger']:<15} "
+            f"{'n/a' if exc is None else exc:<12} "
+            f"{'n/a' if per is None else per:<13} "
+            f"{'n/a' if pct is None else pct:<15} "
             f"{p['risk_label']}"
         )
 

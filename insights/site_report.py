@@ -80,6 +80,13 @@ def generate_site_report(zone: dict, window_days: int = 7, profile_days: int = 3
         "persistence": risk["persistence"],
         "pct_time_in_danger": risk["pct_time_in_danger"],
         "risk_label": risk["risk_label"],
+        # True when FortyGuard had no tiles for this spot at any AOI radius.
+        # The hour figures and pct_time_in_danger are null in that case —
+        # "unmeasured", NOT "safe". Consumers must not render zeros.
+        "no_coverage": risk["no_coverage"],
+        # Which AOI box the numbers actually describe. `widened` means the
+        # default ~330m box was empty and a larger one was used instead.
+        "aoi": risk["aoi"],
         "time_of_day": {
             "profile_dates": profile_dates,
             "ranked_blocks": [

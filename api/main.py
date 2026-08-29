@@ -10,7 +10,7 @@ useful for Person C to try endpoints before wiring up the real frontend.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import zones
+from api.routes import alerts, zones
 
 app = FastAPI(title="HeatGuard Sentinel API")
 
@@ -25,6 +25,7 @@ app.add_middleware(
 )
 
 app.include_router(zones.router)
+app.include_router(alerts.router)
 
 
 @app.get("/")

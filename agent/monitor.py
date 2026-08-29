@@ -66,6 +66,45 @@ def _phoenix_now_date_time(buffer_minutes: int = 10, days_lag: int = 2) -> tuple
     return rounded_hour.strftime("%Y-%m-%d"), rounded_hour.strftime("%H:%M")
 
 
+def get_current_conditions_for_zone(
+    zone: dict,
+    anchor_temp_c: float = DEFAULT_ANCHOR_TEMP_C,
+    date_str: str = None,
+    time_str: str = None,
+) -> dict:
+    """
+    Same as get_current_conditions, but takes a zone DICT rather than a
+    zone_id from config/multi_zones.json.
+
+    Needed for alert subscriptions on freshly pinned coordinates: those
+    aren't in multi_zones.json, so there's no id to look up. Only needs
+    id/name/lat/lon, exactly like insights/site_report.py's `zone` arg.
+    """
+    if date_str is None or time_str is None:
+        date_str, time_str = _phoenix_now_date_time()
+
+    result = client.environmental_parameters(
+        latitude=zone["lat"],
+        longitude=zone["lon"],
+        temperature=anchor_temp_c,
+        start_date=date_str,
+        start_time=time_str,
+        filter_type=1,
+    )
+
+    params = result["result"]["locations"][0]["parameters"]
+    return {
+        "zone_id": zone["id"],
+        "zone_name": zone["name"],
+        "apparent_temperature_c": params["apparent_temperature_celsius"][0],
+        "relative_humidity_pct": params["relative_humidity_percent"][0],
+        "aqi": params.get("air_quality:idx", [None])[0],
+        "raw_activity_id": result["activity_id"],
+        "request_date": date_str,
+        "request_time": time_str,
+    }
+
+
 def get_current_conditions(zone_id: str, anchor_temp_c: float = DEFAULT_ANCHOR_TEMP_C,
                             date_str: str = None, time_str: str = None) -> dict:
     """
@@ -81,38 +120,22 @@ def get_current_conditions(zone_id: str, anchor_temp_c: float = DEFAULT_ANCHOR_T
     anchor is applied across 24h) — apparent_temperature follows the real
     diurnal cycle and is safe to use at the actual work hour.
     """
-    if date_str is None or time_str is None:
-        date_str, time_str = _phoenix_now_date_time()
-
     zone = load_zone(zone_id)
-
-    result = client.environmental_parameters(
-        latitude=zone["lat"],
-        longitude=zone["lon"],
-        temperature=anchor_temp_c,
-        start_date=date_str,
-        start_time=time_str,
-        filter_type=1,
+    return get_current_conditions_for_zone(
+        zone, anchor_temp_c=anchor_temp_c, date_str=date_str, time_str=time_str
     )
-
-    params = result["result"]["locations"][0]["parameters"]
-    return {
-        "zone_id": zone_id,
-        "zone_name": zone["name"],
-        "apparent_temperature_c": params["apparent_temperature_celsius"][0],
-        "relative_humidity_pct": params["relative_humidity_percent"][0],
-        "aqi": params.get("air_quality:idx", [None])[0],
-        "raw_activity_id": result["activity_id"],
-        "request_date": date_str,
-        "request_time": time_str,
-    }
 
 
 def simulate_conditions(zone_id: str, apparent_temp_c: float = 42.0) -> dict:
     """DEMO SAFETY NET — bypasses the real API call for rehearsal/demo."""
     zone = load_zone(zone_id)
+    return simulate_conditions_for_zone(zone, apparent_temp_c=apparent_temp_c)
+
+
+def simulate_conditions_for_zone(zone: dict, apparent_temp_c: float = 42.0) -> dict:
+    """Same demo safety net, for a pinned zone dict not in multi_zones.json."""
     return {
-        "zone_id": zone_id,
+        "zone_id": zone["id"],
         "zone_name": zone["name"],
         "apparent_temperature_c": apparent_temp_c,
         "relative_humidity_pct": None,

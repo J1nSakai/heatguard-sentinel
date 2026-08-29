@@ -23,7 +23,13 @@ from statistics import mean
 from dotenv import load_dotenv
 from fortyguard import FortyGuardClient
 
-from insights.historical import build_zone_polygon, load_all_zones, load_zone
+from insights.historical import (
+    AOI_LADDER_DEG,
+    BUFFER_DEG,
+    build_zone_polygon,
+    load_all_zones,
+    load_zone,
+)
 from insights.risk_scoring import run_risk_scoring_for_all_zones
 from insights.schema_cache import get_or_fetch
 
@@ -42,10 +48,17 @@ TIME_BLOCKS = [
 
 # ---------- Safest time of day ----------
 
-def get_block_avg_temperature(client, zone: dict, date_str: str, block: dict, granularity: int = 60) -> float:
+def get_block_avg_temperature(
+    client,
+    zone: dict,
+    date_str: str,
+    block: dict,
+    granularity: int = 60,
+    buffer_deg: float = BUFFER_DEG,
+) -> float:
     """One block, one specific day. Returns the average tile temperature (°C)."""
     def _fetch():
-        aoi = build_zone_polygon(zone["lat"], zone["lon"])
+        aoi = build_zone_polygon(zone["lat"], zone["lon"], buffer_deg=buffer_deg)
         return client.create_heatmap(
             polygon_aoi=aoi,
             start_date=date_str,
@@ -58,8 +71,14 @@ def get_block_avg_temperature(client, zone: dict, date_str: str, block: dict, gr
     # Reusing the same cache as historical.py — analytic_type is repurposed
     # here to encode the time block, since tcm calls don't have one of
     # their own. threshold_c is unused for tcm, so we pass 0.0 as a filler.
+    # The AOI radius is folded into the key too (default radius keeps the
+    # bare name so pre-existing cache files still hit).
+    analytic_key = f"tcm_{block['id']}"
+    if buffer_deg != BUFFER_DEG:
+        analytic_key = f"{analytic_key}@r{buffer_deg}"
+
     response = get_or_fetch(
-        zone_id=zone["id"], analytic_type=f"tcm_{block['id']}", threshold_c=0.0,
+        zone_id=zone["id"], analytic_type=analytic_key, threshold_c=0.0,
         start_date=date_str, end_date=date_str, granularity=granularity,
         fetch_fn=_fetch,
     )
@@ -78,22 +97,47 @@ def get_block_avg_temperature(client, zone: dict, date_str: str, block: dict, gr
     return mean(temps) if temps else None
 
 
-def build_daily_time_profile(client, zone: dict, dates: list, blocks: list = TIME_BLOCKS) -> dict:
+def build_daily_time_profile(
+    client,
+    zone: dict,
+    dates: list,
+    blocks: list = TIME_BLOCKS,
+    buffer_deg: float = BUFFER_DEG,
+) -> dict:
     """
     For each block, average its temperature across all given dates.
     Returns {block_id: {"label": ..., "avg_temp_c": ...}}
+
+    If EVERY block comes back empty at the given radius, retry once at the
+    widest radius in the ladder — same reasoning as the exceedance path: a
+    pinned point in a tile gap usually has usable data slightly further out.
+    Bounded to one extra pass so a cold report can't balloon in cost.
     """
     profile = {}
     for block in blocks:
         daily_values = []
         for date_str in dates:
-            temp = get_block_avg_temperature(client, zone, date_str, block)
+            temp = get_block_avg_temperature(
+                client, zone, date_str, block, buffer_deg=buffer_deg
+            )
             if temp is not None:
                 daily_values.append(temp)
         profile[block["id"]] = {
             "label": block["label"],
             "avg_temp_c": round(mean(daily_values), 1) if daily_values else None,
         }
+
+    all_empty = all(data["avg_temp_c"] is None for data in profile.values())
+    widest = AOI_LADDER_DEG[-1]
+    if all_empty and buffer_deg != widest:
+        print(
+            f"  [widened] {zone['id']} / time-of-day: no tiles at this radius, "
+            f"retrying at the widest AOI"
+        )
+        return build_daily_time_profile(
+            client, zone, dates, blocks=blocks, buffer_deg=widest
+        )
+
     return profile
 
 
@@ -110,8 +154,15 @@ def recommend_safest_time(profile: dict) -> list:
 # ---------- Safest zone (reuses Day 3 data, no new API calls) ----------
 
 def recommend_safest_zone(risk_profiles: list) -> list:
-    """Sorted list of zone risk profiles, safest (lowest % time in danger) first."""
-    return sorted(risk_profiles, key=lambda p: p["pct_time_in_danger"])
+    """Sorted list of zone risk profiles, safest (lowest % time in danger) first.
+
+    Unmeasured zones (pct_time_in_danger is None) sort LAST — an unknown site
+    must never be presented as the safest choice.
+    """
+    return sorted(
+        risk_profiles,
+        key=lambda p: (p["pct_time_in_danger"] is None, p["pct_time_in_danger"] or 0),
+    )
 
 
 if __name__ == "__main__":

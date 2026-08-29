@@ -96,10 +96,32 @@ def bucket_landcover(segments: dict) -> dict:
     }
 
 
+# Above this share of unclassified land cover, the buckets aren't a usable
+# basis for a conclusion — see explain_why_hot(). Observed for real on a
+# pinned Phoenix point: {tree: 0.99, "earth, ground": 16.71, others: 82.3}.
+UNCLASSIFIED_LIMIT_PCT = 50.0
+
+
 def explain_why_hot(bucketed: dict) -> str:
-    """Plain-English explanation, dumbest-version-first cutoffs."""
+    """Plain-English explanation, dumbest-version-first cutoffs.
+
+    Refuses to draw a conclusion when most of the imagery didn't classify
+    into either bucket. Previously a pin returning 82.3% "others" fell
+    through to the low-impervious branch and claimed "meaningful vegetation
+    (1.0%) ... helps moderate heat" — the opposite of the truth, stated
+    confidently. A hedge is fine here; a wrong reassurance is not.
+    """
     impervious = bucketed["impervious_pct"]
     vegetation = bucketed["vegetation_pct"]
+    other = bucketed["other_pct"]
+
+    if other >= UNCLASSIFIED_LIMIT_PCT:
+        return (
+            f"Land cover for this spot is mostly unclassified ({other}% of the "
+            f"satellite image), so it can't reliably explain the heat here. "
+            f"Of what was identified: {impervious}% heat-retaining surface "
+            f"(pavement, buildings, bare ground) and {vegetation}% vegetation."
+        )
 
     if impervious >= 60:
         return (
@@ -111,10 +133,18 @@ def explain_why_hot(bucketed: dict) -> str:
             f"This zone has a moderate mix of hard surfaces ({impervious}% impervious) "
             f"and vegetation ({vegetation}%), likely giving it some pockets of relief."
         )
-    else:
+    elif vegetation >= 15:
         return (
             f"This zone has relatively low impervious coverage ({impervious}%) "
             f"and meaningful vegetation ({vegetation}%), which likely helps moderate heat."
+        )
+    else:
+        # Low impervious AND low vegetation — mostly bare//open ground. Not
+        # shaded, so don't imply relief.
+        return (
+            f"This zone has little hard surface ({impervious}% impervious) but also "
+            f"little vegetation ({vegetation}%), so there is minimal shade to "
+            f"moderate direct sun exposure."
         )
 
 
@@ -125,10 +155,10 @@ def get_zone_landcover_summary(client: FortyGuardClient, zone: dict, date_str: s
     segments = result["segmentation"]["segments"]
     bucketed = bucket_landcover(segments)
 
-    # If nothing matched a keyword, everything silently lands in other_pct and
-    # explain_why_hot() reports "low impervious coverage" — a wrong answer
-    # rather than an error. Surface it instead of letting it pass quietly.
-    if bucketed["other_pct"] >= 50.0:
+    # If nothing matched a keyword, everything silently lands in other_pct.
+    # explain_why_hot() now hedges instead of drawing a wrong conclusion,
+    # but still log it so the keyword lists can be improved.
+    if bucketed["other_pct"] >= UNCLASSIFIED_LIMIT_PCT:
         unmatched = sorted(segments, key=segments.get, reverse=True)[:5]
         print(f"  [warn] {bucketed['other_pct']}% of land cover matched no keyword bucket. "
               f"Top classes: {unmatched}. Check IMPERVIOUS_KEYWORDS/VEGETATION_KEYWORDS.")
@@ -137,6 +167,7 @@ def get_zone_landcover_summary(client: FortyGuardClient, zone: dict, date_str: s
         "image_year": result.get("image_year"),
         "raw_segments": segments,
         **bucketed,
+        "unclassified_dominant": bucketed["other_pct"] >= UNCLASSIFIED_LIMIT_PCT,
         "explanation": explain_why_hot(bucketed),
     }
 

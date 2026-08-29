@@ -73,6 +73,21 @@ def _safe_report(build_report, *args, **kwargs) -> dict:
             status_code=502,
             detail=f"FortyGuard API error: {exc}",
         ) from exc
+    except Exception as exc:  # pragma: no cover - defensive catch-all
+        # A malformed upstream payload or an unexpected bug in our own
+        # pipeline shouldn't surface as a raw 500 traceback to the
+        # frontend. Treat it as an upstream/data problem (502) with a
+        # human-readable message; log the detail server-side.
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "FortyGuard returned an unexpected result that could not be "
+                "processed (possibly a location with no heat-data coverage). "
+                "Please try a different spot or retry."
+            ),
+        ) from exc
 
 
 @router.get("")

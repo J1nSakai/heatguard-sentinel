@@ -1,130 +1,108 @@
-export type RiskLevel = 'safe' | 'caution' | 'danger' | 'extreme';
-
-export interface WorkerLocation {
-  lat: number;
-  lng: number;
-  siteId: string;
-  zoneName: string;
+export interface StatsSummary {
+  units: string;
+  n_cells: number;
+  // null when FortyGuard had no tiles for this AOI — "unmeasured", NOT zero.
+  min_hours: number | null;
+  max_hours: number | null;
+  mean_hours: number | null;
+  no_coverage: boolean;
 }
 
-export interface WorkerVitals {
-  heartRate: number; // bpm
-  bodyTemp: number; // °C
-  sweatRate?: 'low' | 'moderate' | 'high';
-  hydrationLevel: number; // 0 - 100%
-  heatStrainIndex: number; // 0 - 10
+export interface RankedBlock {
+  block_id: string;
+  label: string;
+  avg_temp_c: number | null;
 }
 
-export interface Worker {
-  id: string;
-  name: string;
-  role: string;
-  siteId: string;
-  siteName: string;
-  avatarUrl?: string;
-  phone?: string;
-  ppeType: string;
-  currentTemp: number; // Ambient microclimate temp in °C
-  feelsLikeTemp: number;
-  heatIndex: number;
-  customThreshold: number; // Max allowable temp before alert, default e.g. 38°C
-  status: RiskLevel;
-  location: WorkerLocation;
-  vitals: WorkerVitals;
-  timeInSunMinutes: number; // Minutes exposed today
-  lastCheckIn: string; // ISO string
-  breakRequested: boolean;
-  breakRequestTime?: string;
-  batteryLevel: number; // Sentinel sensor battery %
+export interface WhyHot {
+  image_year: number;
+  raw_segments: Record<string, number>;
+  impervious_pct: number;
+  vegetation_pct: number;
+  other_pct: number;
+  // True when most of the satellite image didn't classify, so the buckets
+  // can't support a conclusion about the heat.
+  unclassified_dominant: boolean;
+  explanation: string;
 }
 
-export interface SiteZone {
-  id: string;
-  name: string;
-  type: 'open_field' | 'heavy_machinery' | 'roof_deck' | 'trench' | 'shade_station';
-  currentTemp: number;
-  riskLevel: RiskLevel;
-  workerCount: number;
-}
-
-export interface Site {
-  id: string;
-  name: string;
-  city: string;
-  state: string;
-  lat: number;
-  lng: number;
-  zoom: number;
-  currentTemp: number; // City/ambient avg °C
-  peakTempToday: number;
-  humidity: number; // %
-  solarRadiation: number; // W/m²
-  heatIndex: number; // FortyGuard computed heat index
-  workerCount: number;
-  atRiskCount: number;
-  extremeCount: number;
-  cautionCount: number;
-  safeCount: number;
-  coolZoneStations: {
-    id: string;
-    name: string;
-    lat: number;
-    lng: number;
-    capacity: number;
-    occupied: number;
-    hasMisting: boolean;
-    waterSuppliesLitres: number;
-  }[];
-  zones: SiteZone[];
-}
-
-export interface SafetyAlert {
-  id: string;
-  workerId?: string;
-  workerName?: string;
-  siteId: string;
-  siteName: string;
-  timestamp: string; // ISO string
-  severity: RiskLevel;
-  type: 'threshold_exceeded' | 'emergency_sos' | 'break_requested' | 'heat_spike' | 'hydration_needed' | 'high_exposure';
-  title: string;
-  message: string;
-  temperature?: number;
-  threshold?: number;
-  acknowledged: boolean;
-  acknowledgedAt?: string;
-  acknowledgedBy?: string;
-  resolved: boolean;
-  resolvedAt?: string;
-}
-
-export interface FortyGuardHeatTile {
-  tile_id: number;
-  average_temperature: number;
-  min_temperature: number;
-  max_temperature: number;
-  coordinates: number[][][]; // Polygon coords [ [ [lng, lat], ... ] ]
-}
-
-export interface FortyGuardHeatmapData {
-  aoi_name: string;
+export interface SiteReport {
+  zone_id: string;
+  zone_name: string;
+  worker_type: string;
   generated_at: string;
-  mean_temp: number;
-  min_temp: number;
-  max_temp: number;
-  tiles: FortyGuardHeatTile[];
+  risk_window: {
+    start_date: string;
+    end_date: string;
+    window_days: number;
+  };
+  threshold_c: number;
+  exceedance: StatsSummary;
+  persistence: StatsSummary;
+  // null when unmeasured — never render this as 0%.
+  pct_time_in_danger: number | null;
+  risk_label: string;
+  no_coverage: boolean;
+  aoi: {
+    box_metres: number;
+    widened: boolean;
+  };
+  time_of_day: {
+    profile_dates: string[];
+    ranked_blocks: RankedBlock[];
+    safest_block: RankedBlock | null;
+  };
+  why_hot: WhyHot | null;
 }
 
-export interface KpiSummary {
-  totalWorkers: number;
-  atRiskWorkers: number; // danger + extreme
-  extremeWorkers: number;
-  safeWorkers: number;
-  cautionWorkers: number;
-  activeSites: number;
-  alertsToday: number;
-  unacknowledgedAlerts: number;
-  breakRequestsPending: number;
-  avgSiteTemp: number;
-  highestTempRecorded: number;
+export interface PinnedLocation {
+  lat: number;
+  lon: number;
+  name: string;
+  worker_type: string;
+  window_days: number;
+  profile_days: number;
+}
+
+/** OSHA tier vocabulary — mirrors config/osha_thresholds.json. */
+export type RiskTier = 'lower' | 'moderate' | 'high' | 'very_high';
+
+export interface Subscription {
+  id: string;
+  lat: number;
+  lon: number;
+  name: string;
+  worker_type: string;
+  email: string;
+  min_tier: RiskTier;
+  created_at: string;
+  last_checked_at: string | null;
+  last_alert_at: string | null;
+}
+
+export interface SubscriptionCreate {
+  lat: number;
+  lon: number;
+  email: string;
+  name: string;
+  worker_type: string;
+  min_tier: RiskTier;
+}
+
+/** One entry from the agent's fired-alert log (data/logs/alerts.jsonl). */
+export interface AlertEntry {
+  zone_id: string;
+  zone_name: string;
+  timestamp: string;
+  apparent_temperature_c: number;
+  risk_level: RiskTier | 'unknown';
+  risk_label: string;
+  guidance: string;
+  action: 'alert' | 'log_only';
+  simulated: boolean;
+  explanation?: string;
+}
+
+export interface ApiErrorDetail {
+  detail: string;
 }
