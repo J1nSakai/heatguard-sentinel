@@ -146,6 +146,26 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
         {(checkLoading || latestCheck) && (
           <div>
             <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Sentinel Decision</h2>
+            
+            {/* UI ALERT BANNER */}
+            {latestCheck && latestCheck.action === 'alert' && !latestCheckIsSimulated && (
+              <div className="mb-4 bg-rose-50 border-l-4 border-rose-500 p-4 rounded shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertCircle className="h-5 w-5 text-rose-600" />
+                  <span className="text-xs font-black uppercase tracking-widest text-rose-600">Sentinel Alert</span>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex"><span className="w-24 font-bold text-stone-700">Risk Level:</span><span className="font-bold text-rose-700 uppercase">{latestCheck.risk_label}</span></div>
+                  <div className="flex"><span className="w-24 font-bold text-stone-700">Action:</span><span className="font-bold text-rose-600 uppercase">ALERT</span></div>
+                  <div className="flex"><span className="w-24 font-bold text-stone-700">Zone:</span><span className="text-stone-800">{selectedZone.name}</span></div>
+                  <div className="flex mt-2 pt-2 border-t border-rose-200"><span className="w-24 font-bold text-stone-700">Guidance:</span><span className="text-stone-800 flex-1">{latestCheck.guidance}</span></div>
+                  {latestCheck.explanation && (
+                    <div className="flex mt-1"><span className="w-24 font-bold text-stone-700">Explanation:</span><span className="text-stone-700 italic flex-1">{latestCheck.explanation}</span></div>
+                  )}
+                </div>
+              </div>
+            )}
+            
             <SentinelDecisionCard
               checkResult={latestCheck}
               isLoading={checkLoading}
