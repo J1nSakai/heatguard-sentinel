@@ -134,7 +134,7 @@ export const DashboardPage: React.FC = () => {
         {/* LEFT: MAP & HISTORY */}
         <div className="flex-1 lg:w-2/3 flex flex-col border-b lg:border-b-0 border-stone-300">
           
-          <div className="flex-1 h-[50vh] lg:h-auto relative bg-stone-200 border-b border-stone-300">
+          <div className="h-[50vh] lg:h-auto relative bg-stone-200 border-b border-stone-300">
             <ZoneSelectionMap
               zones={zones}
               selectedZoneId={selectedZoneId}
@@ -144,18 +144,41 @@ export const DashboardPage: React.FC = () => {
             />
 
             {/* Map Overlay UX */}
-            <div className="absolute top-4 left-4 z-[400] pointer-events-none hidden sm:block">
-              <div className="bg-white/90 backdrop-blur-md p-4 border border-stone-300 shadow-sm max-w-[260px] mb-2">
+            <div className="absolute top-4 left-4 z-[400] hidden sm:block">
+              <div className="bg-white/90 backdrop-blur-md p-4 border border-stone-300 shadow-sm max-w-[260px] mb-2 pointer-events-auto">
                 <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-800 mb-1">
                   Pin A Work Location
                 </h2>
-                <p className="text-[11px] font-medium text-stone-600 leading-snug">
+                <p className="text-[11px] font-medium text-stone-600 leading-snug mb-3">
                   Click anywhere on the map to identify the nearest monitored construction zone.
                 </p>
+                
+                <div className="border-t border-stone-200 pt-3">
+                  <label className="block text-[9px] font-black text-stone-800 uppercase tracking-widest mb-1.5">
+                    Zone Override
+                  </label>
+                  <div className="relative border border-stone-300 bg-white hover:border-stone-400 transition-colors">
+                    <select
+                      value={selectedZoneId || ''}
+                      onChange={handleDropdownChange}
+                      className="w-full appearance-none bg-transparent py-1.5 pl-2 pr-8 text-[10px] font-bold text-stone-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-stone-500"
+                    >
+                      {zones.length === 0 && <option value="">No zones available</option>}
+                      {zones.map((zone) => (
+                        <option key={zone.id} value={zone.id}>
+                          {zone.name.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                      <svg className="h-3 w-3 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {clickedLocation && activeZone && (
-                <div className="bg-white/90 backdrop-blur-md p-3 border border-stone-300 shadow-sm max-w-[260px]">
+                <div className="bg-white/90 backdrop-blur-md p-3 border border-stone-300 shadow-sm max-w-[260px] pointer-events-auto">
                   <div className="mb-2">
                     <div className="text-[8px] font-black uppercase tracking-widest text-stone-400 mb-0.5">Selected Location</div>
                     <div className="text-[10px] font-mono font-bold text-stone-700">{clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}</div>
@@ -166,31 +189,6 @@ export const DashboardPage: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
-            
-            {/* Zone Override Overlay */}
-            <div className="absolute bottom-4 left-4 z-[400] bg-white/90 backdrop-blur-md p-3 border border-stone-300 shadow-sm">
-              <label className="block text-[9px] font-black text-stone-800 uppercase tracking-widest mb-1.5">
-                Zone Override
-              </label>
-              <div className="relative border border-stone-300 bg-white hover:border-stone-400 transition-colors">
-                <select
-                  value={selectedZoneId || ''}
-                  onChange={handleDropdownChange}
-                  className="w-56 appearance-none bg-transparent py-1.5 pl-2 pr-8 text-[10px] font-bold text-stone-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-stone-500"
-                >
-                  {zones.length === 0 && <option value="">No zones available</option>}
-                  {zones.map((zone) => (
-                    <option key={zone.id} value={zone.id}>
-                      {zone.name.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-                <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                  <svg className="h-3 w-3 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                </div>
-              </div>
-              <p className="text-[8px] font-medium text-stone-500 mt-1.5">Select monitored zone manually</p>
             </div>
           </div>
 

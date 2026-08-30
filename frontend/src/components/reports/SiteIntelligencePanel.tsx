@@ -249,16 +249,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
         </div>
 
         {/* 6. CURRENT SENTINEL ACTIVITY */}
-        <div>
-          <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Current Sentinel Activity</h2>
-          {sessionEvents.length > 0 ? (
-            <CurrentSentinelActivity events={sessionEvents} />
-          ) : (
-            <div className="border border-dashed border-stone-300 p-4 text-[10px] uppercase tracking-widest text-stone-400 text-center">
-              No activity in current session
-            </div>
-          )}
-        </div>
+        <CurrentSentinelActivity events={sessionEvents} />
 
       </div>
     </div>

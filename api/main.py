@@ -7,6 +7,12 @@ Then visit http://127.0.0.1:8000/docs for an interactive test UI —
 useful for Person C to try endpoints before wiring up the real frontend.
 """
 
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
