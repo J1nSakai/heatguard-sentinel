@@ -81,6 +81,12 @@ def evaluate_site(zone_id: str, simulate: bool = False,
 
     tier = classify_by_apparent_temp(conditions["apparent_temperature_c"])
 
+    threshold_exceeded = True
+    if alert_threshold is not None:
+        threshold_exceeded = conditions["apparent_temperature_c"] > alert_threshold
+        if not threshold_exceeded:
+            tier = OSHA_TIERS[0]  # Override to lowest risk tier ("lower" / "Caution")
+
     decision = {
         "zone_id": conditions["zone_id"],
         "zone_name": conditions["zone_name"],
@@ -91,6 +97,7 @@ def evaluate_site(zone_id: str, simulate: bool = False,
         "guidance": tier.get("guidance", ""),
         "action": None,
         "simulated": simulate,
+        "notification_triggered": False,
     }
 
     if include_historical and not simulate:
@@ -103,16 +110,9 @@ def evaluate_site(zone_id: str, simulate: bool = False,
         decision["action"] = "alert"
         decision["explanation"] = phrase_alert(_to_llm_shape(decision))
         
-        trigger_notification = True
-        if alert_threshold is not None:
-            threshold_exceeded = decision["apparent_temperature_c"] > alert_threshold
-            decision["threshold_exceeded"] = threshold_exceeded
-            trigger_notification = threshold_exceeded
-                
-        decision["notification_triggered"] = trigger_notification
-        
-        if trigger_notification:
-            send_alert(decision, recipient_email=recipient_email)
+        # If we reached here, threshold_exceeded is True (or threshold wasn't provided)
+        decision["notification_triggered"] = True
+        send_alert(decision, recipient_email=recipient_email)
 
     return decision
 
