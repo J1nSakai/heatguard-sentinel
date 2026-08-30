@@ -90,7 +90,7 @@ export const DashboardPage: React.FC = () => {
   };
 
   // Run Check (passed to Panel)
-  const handleRunCheck = async (simulate: boolean, temp?: number, recipientEmail?: string): Promise<CheckResponse | null> => {
+  const handleRunCheck = async (simulate: boolean, temp?: number, recipientEmail?: string, alertThreshold?: number): Promise<CheckResponse | null> => {
     if (!selectedZoneId) return null;
 
     if (checkAbortRef.current) {
@@ -103,6 +103,9 @@ export const DashboardPage: React.FC = () => {
       const body: any = simulate ? { simulate: true, simulate_temp_c: temp } : {};
       if (recipientEmail) {
         body.recipient_email = recipientEmail;
+      }
+      if (alertThreshold !== undefined) {
+        body.alert_threshold = alertThreshold;
       }
       const result = await checkZone(selectedZoneId, body, checkAbortRef.current.signal);
       return result;

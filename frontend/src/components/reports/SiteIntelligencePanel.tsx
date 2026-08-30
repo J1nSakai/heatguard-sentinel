@@ -8,7 +8,7 @@ import { MapPin, Search, Zap, RefreshCw, AlertCircle, Loader2 } from 'lucide-rea
 interface SiteIntelligencePanelProps {
   selectedZone: Zone;
   clickedLocation: { lat: number; lng: number } | null;
-  onRunCheck: (simulate: boolean, temp?: number, recipientEmail?: string) => Promise<CheckResponse | null>;
+  onRunCheck: (simulate: boolean, temp?: number, recipientEmail?: string, alertThreshold?: number) => Promise<CheckResponse | null>;
   checkLoading: boolean;
   elapsedSeconds: number;
   report: ReportResponse | null;
@@ -36,6 +36,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
   const [sessionEvents, setSessionEvents] = useState<(CheckResponse & { isSimulated?: boolean })[]>([]);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [recipientEmail, setRecipientEmail] = useState<string>('');
+  const [alertThreshold, setAlertThreshold] = useState<string>('');
 
   useEffect(() => {
     setLatestCheck(null);
@@ -48,9 +49,19 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
       setCheckError("Please enter a valid email address.");
       return;
     }
+    
+    let thresholdVal: number | undefined = undefined;
+    if (alertThreshold) {
+      thresholdVal = parseFloat(alertThreshold);
+      if (isNaN(thresholdVal) || thresholdVal < 20.0 || thresholdVal > 60.0) {
+        setCheckError("Please enter a valid threshold between 20.0°C and 60.0°C.");
+        return;
+      }
+    }
+    
     setCheckError(null);
     try {
-      const result = await onRunCheck(simulate, simulateTemp, recipientEmail || undefined);
+      const result = await onRunCheck(simulate, simulateTemp, recipientEmail || undefined, thresholdVal);
       if (result) {
         setLatestCheck(result);
         setLatestCheckIsSimulated(simulate);
@@ -103,14 +114,30 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
         )}
 
         <div className="mb-4">
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1">Alert Email (Optional)</label>
-          <input
-            type="email"
-            value={recipientEmail}
-            onChange={(e) => setRecipientEmail(e.target.value)}
-            placeholder="manager@example.com"
-            className="w-full border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-transparent transition-colors"
-          />
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Alert Notifications</label>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-[9px] font-bold uppercase tracking-widest text-stone-500 mb-1">Alert Email</label>
+              <input
+                type="email"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                placeholder="manager@example.com"
+                className="w-full border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-transparent transition-colors"
+              />
+            </div>
+            <div className="w-1/3 min-w-[100px]">
+              <label className="block text-[9px] font-bold uppercase tracking-widest text-stone-500 mb-1">Threshold °C</label>
+              <input
+                type="number"
+                value={alertThreshold}
+                onChange={(e) => setAlertThreshold(e.target.value)}
+                placeholder="35.0"
+                step="0.1"
+                className="w-full border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-transparent transition-colors"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col xl:flex-row gap-3">
@@ -164,7 +191,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
             <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Sentinel Decision</h2>
             
             {/* UI ALERT BANNER */}
-            {latestCheck && latestCheck.action === 'alert' && !latestCheckIsSimulated && (
+            {latestCheck && latestCheck.action === 'alert' && !latestCheckIsSimulated && latestCheck.notification_triggered === true && (
               <div className="mb-4 bg-rose-50 border-l-4 border-rose-500 p-4 rounded shadow-sm">
                 <div className="flex items-center gap-2 mb-2">
                   <AlertCircle className="h-5 w-5 text-rose-600" />

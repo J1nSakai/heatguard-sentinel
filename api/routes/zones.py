@@ -130,6 +130,7 @@ from agent.escalation import evaluate_site
  
 class CheckZoneRequest(BaseModel):
     recipient_email: Optional[str] = None   # site manager's email, from frontend
+    alert_threshold: Optional[float] = None  # user-configured threshold
     simulate: bool = False                   # demo-safety: force a test alert
     simulate_temp_c: float = 42.0
 
@@ -139,6 +140,14 @@ class CheckZoneRequest(BaseModel):
         if v:
             if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
                 raise ValueError("Invalid email format")
+        return v
+
+    @field_validator('alert_threshold')
+    @classmethod
+    def validate_threshold(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None:
+            if v < 20.0 or v > 60.0:
+                raise ValueError("Threshold must be between 20.0°C and 60.0°C")
         return v
  
  
@@ -163,6 +172,7 @@ def check_zone_now(zone_id: str, body: CheckZoneRequest = CheckZoneRequest()):
         simulate=body.simulate,
         simulate_temp_c=body.simulate_temp_c,
         recipient_email=body.recipient_email,
+        alert_threshold=body.alert_threshold,
         include_historical=not body.simulate,
     )
  

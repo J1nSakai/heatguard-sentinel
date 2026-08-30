@@ -64,7 +64,8 @@ def get_historical_context(zone: dict, days_back: int = 7) -> dict:
 def evaluate_site(zone_id: str, simulate: bool = False,
                    simulate_temp_c: float = 42.0,
                    include_historical: bool = True,
-                   recipient_email: str = None) -> dict:
+                   recipient_email: str = None,
+                   alert_threshold: float = None) -> dict:
     """
     Core agent step for ONE site.
 
@@ -101,7 +102,17 @@ def evaluate_site(zone_id: str, simulate: bool = False,
     else:
         decision["action"] = "alert"
         decision["explanation"] = phrase_alert(_to_llm_shape(decision))
-        send_alert(decision, recipient_email=recipient_email)
+        
+        trigger_notification = True
+        if alert_threshold is not None:
+            threshold_exceeded = decision["apparent_temperature_c"] > alert_threshold
+            decision["threshold_exceeded"] = threshold_exceeded
+            trigger_notification = threshold_exceeded
+                
+        decision["notification_triggered"] = trigger_notification
+        
+        if trigger_notification:
+            send_alert(decision, recipient_email=recipient_email)
 
     return decision
 

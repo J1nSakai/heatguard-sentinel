@@ -27,6 +27,7 @@ export interface ZonesResponse {
 
 export interface CheckRequest {
   recipient_email?: string;
+  alert_threshold?: number;
   simulate?: boolean;
   simulate_temp_c?: number;
 }
@@ -53,6 +54,10 @@ export interface CheckResponse {
   explanation?: string;
   /** Present only for non-simulated (live) checks */
   historical_context?: HistoricalContext;
+  /** Whether the notification threshold was exceeded */
+  threshold_exceeded?: boolean;
+  /** Whether a notification was triggered for this event */
+  notification_triggered?: boolean;
 }
 
 // ── GET /zones/{zone_id}/report ─────────────────────────────────────────────
