@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef } from "react";
 import { useSafety } from "../context/SafetyContext";
 import { Zone, CheckResponse } from "../types/api";
 import { fetchZones, checkZone, getErrorMessage } from "../services/apiClient";
-import { getDistanceFromLatLonInKm, isWithinUSA, geocodeAddress, GeocodeResult } from "../utils/geo";
+import {
+  getDistanceFromLatLonInKm,
+  isWithinUSA,
+  geocodeAddress,
+  GeocodeResult,
+} from "../utils/geo";
 import { ZoneSelectionMap } from "../components/map/ZoneSelectionMap";
 import { SiteIntelligencePanel } from "../components/reports/SiteIntelligencePanel";
 import { AlertsSidebar } from "../components/alerts/AlertsSidebar";
@@ -60,7 +65,7 @@ export const DashboardPage: React.FC = () => {
 
   // Pass pinnedLocation into useSiteReport so custom coordinates trigger real backend reports
   const { report, reportLoading, reportError, cachedTime, loadReport } =
-    useSiteReport(selectedZoneId, pinnedLocation);
+    useSiteReport(selectedZoneId);
 
   // Load zones on mount
   const loadZones = async () => {
@@ -107,7 +112,7 @@ export const DashboardPage: React.FC = () => {
       lat,
       lng,
       nearestZone.lat,
-      nearestZone.lon
+      nearestZone.lon,
     );
 
     for (let i = 1; i < zones.length; i++) {
@@ -115,7 +120,7 @@ export const DashboardPage: React.FC = () => {
         lat,
         lng,
         zones[i].lat,
-        zones[i].lon
+        zones[i].lon,
       );
       if (dist < minDistance) {
         minDistance = dist;
@@ -149,7 +154,10 @@ export const DashboardPage: React.FC = () => {
   };
 
   // Address Geocoding Handler
-  const handleAddressSearch = async (e?: React.FormEvent, customQuery?: string) => {
+  const handleAddressSearch = async (
+    e?: React.FormEvent,
+    customQuery?: string,
+  ) => {
     e?.preventDefault();
     const query = (customQuery ?? addressQuery).trim();
     if (!query) return;
@@ -164,9 +172,14 @@ export const DashboardPage: React.FC = () => {
     setCoordError(null);
 
     try {
-      const results = await geocodeAddress(query, addressAbortRef.current.signal);
+      const results = await geocodeAddress(
+        query,
+        addressAbortRef.current.signal,
+      );
       if (results.length === 0) {
-        setAddressError("No US address found matching that location. Please verify your query.");
+        setAddressError(
+          "No US address found matching that location. Please verify your query.",
+        );
         setAddressResults([]);
         setShowAddressDropdown(false);
       } else if (results.length === 1 || customQuery) {
@@ -177,7 +190,9 @@ export const DashboardPage: React.FC = () => {
       }
     } catch (err: any) {
       if (err?.name === "AbortError") return;
-      setAddressError("Address lookup service unavailable. Please enter coordinates manually.");
+      setAddressError(
+        "Address lookup service unavailable. Please enter coordinates manually.",
+      );
     } finally {
       setIsSearchingAddress(false);
     }
@@ -208,7 +223,7 @@ export const DashboardPage: React.FC = () => {
         result.lat,
         result.lon,
         nearestZone.lat,
-        nearestZone.lon
+        nearestZone.lon,
       );
 
       for (let i = 1; i < zones.length; i++) {
@@ -216,7 +231,7 @@ export const DashboardPage: React.FC = () => {
           result.lat,
           result.lon,
           zones[i].lat,
-          zones[i].lon
+          zones[i].lon,
         );
         if (dist < minDistance) {
           minDistance = dist;
@@ -239,7 +254,7 @@ export const DashboardPage: React.FC = () => {
 
     if (isNaN(lat) || isNaN(lng)) {
       setCoordError(
-        "Please enter valid numeric latitude and longitude coordinates."
+        "Please enter valid numeric latitude and longitude coordinates.",
       );
       return;
     }
@@ -253,12 +268,16 @@ export const DashboardPage: React.FC = () => {
     }
     if (!isWithinUSA(lat, lng)) {
       setCoordError(
-        "Coordinates must be located within the United States (Contiguous US, Alaska, or Hawaii)."
+        "Coordinates must be located within the United States (Contiguous US, Alaska, or Hawaii).",
       );
       return;
     }
 
-    setPinnedLocation({ lat, lng, name: `Custom (${lat.toFixed(3)}, ${lng.toFixed(3)})` });
+    setPinnedLocation({
+      lat,
+      lng,
+      name: `Custom (${lat.toFixed(3)}, ${lng.toFixed(3)})`,
+    });
     setClickedLocation(null);
 
     // Automatically match to the nearest monitored zone
@@ -268,7 +287,7 @@ export const DashboardPage: React.FC = () => {
         lat,
         lng,
         nearestZone.lat,
-        nearestZone.lon
+        nearestZone.lon,
       );
 
       for (let i = 1; i < zones.length; i++) {
@@ -276,7 +295,7 @@ export const DashboardPage: React.FC = () => {
           lat,
           lng,
           zones[i].lat,
-          zones[i].lon
+          zones[i].lon,
         );
         if (dist < minDistance) {
           minDistance = dist;
@@ -301,8 +320,9 @@ export const DashboardPage: React.FC = () => {
   const handleRunCheck = async (
     simulate: boolean,
     temp?: number,
-    recipientEmail?: string
-  , alertThreshold?: number): Promise<CheckResponse | null> => {
+    recipientEmail?: string,
+    alertThreshold?: number,
+  ): Promise<CheckResponse | null> => {
     if (!selectedZoneId) return null;
 
     if (checkAbortRef.current) {
@@ -324,7 +344,7 @@ export const DashboardPage: React.FC = () => {
       const result = await checkZone(
         selectedZoneId,
         body,
-        checkAbortRef.current.signal
+        checkAbortRef.current.signal,
       );
       // If an alert fired, auto-refresh the sidebar log
       if (result?.action === "alert") {
@@ -350,14 +370,14 @@ export const DashboardPage: React.FC = () => {
           pinnedLocation.lat,
           pinnedLocation.lng,
           activeZone.lat,
-          activeZone.lon
+          activeZone.lon,
         )
       : clickedLocation && activeZone
         ? getDistanceFromLatLonInKm(
             clickedLocation.lat,
             clickedLocation.lng,
             activeZone.lat,
-            activeZone.lon
+            activeZone.lon,
           )
         : null;
 
@@ -457,7 +477,10 @@ export const DashboardPage: React.FC = () => {
 
               {/* ADDRESS SEARCH BAR */}
               <div className="relative mb-3">
-                <form onSubmit={(e) => handleAddressSearch(e)} className="flex items-stretch gap-1.5">
+                <form
+                  onSubmit={(e) => handleAddressSearch(e)}
+                  className="flex items-stretch gap-1.5"
+                >
                   <div className="relative flex-1">
                     <Search className="h-3.5 w-3.5 text-stone-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
@@ -491,7 +514,9 @@ export const DashboardPage: React.FC = () => {
 
                   <button
                     type="submit"
-                    disabled={isAnalyzing || isSearchingAddress || !addressQuery.trim()}
+                    disabled={
+                      isAnalyzing || isSearchingAddress || !addressQuery.trim()
+                    }
                     className="bg-stone-800 hover:bg-stone-900 active:bg-black disabled:opacity-40 disabled:cursor-not-allowed text-stone-50 px-4 py-2 text-[9px] font-black uppercase tracking-widest rounded transition-colors flex items-center gap-1.5 shrink-0"
                   >
                     {isSearchingAddress ? (
@@ -509,25 +534,29 @@ export const DashboardPage: React.FC = () => {
                 </form>
 
                 {/* Autocomplete / Search Suggestions Dropdown */}
-                {showAddressDropdown && addressResults.length > 0 && !isAnalyzing && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-stone-300 rounded shadow-xl z-50 max-h-48 overflow-y-auto divide-y divide-stone-100">
-                    {addressResults.map((res, i) => (
-                      <button
-                        key={i}
-                        onClick={() => applyGeocodeResult(res)}
-                        className="w-full text-left p-2.5 hover:bg-stone-50 text-[10px] text-stone-800 flex items-start gap-2 transition-colors"
-                      >
-                        <MapPin className="h-3.5 w-3.5 text-stone-400 shrink-0 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold truncate">{res.displayName}</div>
-                          <div className="text-[8px] font-mono text-stone-400">
-                            GPS: {res.lat.toFixed(4)}, {res.lon.toFixed(4)}
+                {showAddressDropdown &&
+                  addressResults.length > 0 &&
+                  !isAnalyzing && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-stone-300 rounded shadow-xl z-50 max-h-48 overflow-y-auto divide-y divide-stone-100">
+                      {addressResults.map((res, i) => (
+                        <button
+                          key={i}
+                          onClick={() => applyGeocodeResult(res)}
+                          className="w-full text-left p-2.5 hover:bg-stone-50 text-[10px] text-stone-800 flex items-start gap-2 transition-colors"
+                        >
+                          <MapPin className="h-3.5 w-3.5 text-stone-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold truncate">
+                              {res.displayName}
+                            </div>
+                            <div className="text-[8px] font-mono text-stone-400">
+                              GPS: {res.lat.toFixed(4)}, {res.lon.toFixed(4)}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                 {addressError && (
                   <p className="text-[8px] font-bold text-rose-600 mt-1 bg-rose-50 border border-rose-200 p-1.5 rounded">
@@ -560,8 +589,8 @@ export const DashboardPage: React.FC = () => {
                             isAnalyzing
                               ? "opacity-50 cursor-not-allowed border-stone-300 bg-stone-100"
                               : isSelected
-                              ? "bg-white border-stone-800 shadow-sm ring-1 ring-stone-800"
-                              : "bg-white/70 hover:bg-white border-stone-300 hover:border-stone-400"
+                                ? "bg-white border-stone-800 shadow-sm ring-1 ring-stone-800"
+                                : "bg-white/70 hover:bg-white border-stone-300 hover:border-stone-400"
                           }`}
                         >
                           <div>
@@ -667,7 +696,8 @@ export const DashboardPage: React.FC = () => {
                       )}
                       {pinnedLocation && !coordError && (
                         <p className="text-[8px] font-mono text-indigo-700 font-bold bg-indigo-50 border border-indigo-200 p-1 rounded truncate">
-                          ● Pinned: {pinnedLocation.lat.toFixed(4)}, {pinnedLocation.lng.toFixed(4)}
+                          ● Pinned: {pinnedLocation.lat.toFixed(4)},{" "}
+                          {pinnedLocation.lng.toFixed(4)}
                         </p>
                       )}
                     </form>
@@ -725,4 +755,3 @@ export const DashboardPage: React.FC = () => {
     </div>
   );
 };
-
