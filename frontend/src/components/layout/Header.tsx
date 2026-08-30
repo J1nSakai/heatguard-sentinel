@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSafety } from '../../context/SafetyContext';
 import {
-  Flame,
-  AlertOctagon,
-  RotateCcw,
   Building,
-  Thermometer,
   Clock,
   Radio,
   ExternalLink,
@@ -20,9 +16,6 @@ export const Header: React.FC = () => {
     setSelectedSiteId,
     tempUnit,
     setTempUnit,
-    simulateHeatSpike,
-    simulateWorkerSos,
-    resetAllData,
     kpiSummary,
   } = useSafety();
 
@@ -86,34 +79,7 @@ export const Header: React.FC = () => {
 
       {/* Right: Simulation Controls, Units & Profile */}
       <div className="flex items-center gap-2.5">
-        {/* Demo Simulation Bar */}
-        <div className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 p-1">
-          <button
-            onClick={() => simulateHeatSpike()}
-            title="Simulate sudden microclimate heat spike"
-            className="flex items-center gap-1 rounded-lg bg-red-950/60 border border-red-700/50 px-2.5 py-1 text-xs font-bold text-red-300 hover:bg-red-900/80 hover:text-white transition-all shadow-sm"
-          >
-            <Flame className="h-3.5 w-3.5 text-red-400" />
-            <span className="hidden sm:inline">Heat Surge</span>
-          </button>
 
-          <button
-            onClick={() => simulateWorkerSos()}
-            title="Simulate field worker emergency SOS"
-            className="flex items-center gap-1 rounded-lg bg-amber-950/60 border border-amber-700/50 px-2.5 py-1 text-xs font-bold text-amber-300 hover:bg-amber-900/80 hover:text-white transition-all shadow-sm"
-          >
-            <AlertOctagon className="h-3.5 w-3.5 text-amber-400" />
-            <span className="hidden sm:inline">SOS Demo</span>
-          </button>
-
-          <button
-            onClick={() => resetAllData()}
-            title="Reset to default demo data"
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
-        </div>
 
         {/* Temperature Unit Switcher */}
         <div className="flex rounded-xl border border-slate-800 bg-slate-900/80 p-0.5 text-xs font-bold font-mono">

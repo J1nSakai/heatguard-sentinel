@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Worker, Site, SafetyAlert, KpiSummary, RiskLevel } from '../types';
-import { MockApiService } from '../services/mockApi';
+import type { Zone, CheckResponse, CheckRequest } from '../types/api';
+
 import { realtimeSafetyService } from '../services/websocketService';
+import { fetchZones, checkZone, getErrorMessage } from '../services/apiClient';
 import { useToast } from './ToastContext';
 import { getRiskLevel } from '../constants/riskLevels';
 
@@ -38,32 +40,57 @@ interface SafetyContextType {
   simulateHeatSpike: (siteId?: string) => void;
   simulateWorkerSos: (workerId?: string) => void;
   resetAllData: () => void;
+
+  // ── Backend API State ──────────────────────────────────────────────────
+  zones: Zone[];
+  zonesLoading: boolean;
+  zonesError: string | null;
+  selectedZoneId: string | null;
+  setSelectedZoneId: (id: string | null) => void;
+  checkResult: CheckResponse | null;
+  checkLoading: boolean;
+  checkError: string | null;
+  checkStartTime: number | null;
+  isCheckSimulated: boolean;
+  loadZones: () => Promise<void>;
+  performCheck: (zoneId: string, options?: CheckRequest) => Promise<void>;
+  performSimulation: (zoneId: string, tempC?: number) => Promise<void>;
+  cancelCheck: () => void;
+  clearCheckResult: () => void;
 }
 
 const SafetyContext = createContext<SafetyContextType | undefined>(undefined);
 
 export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { showToast } = useToast();
-  const [workers, setWorkers] = useState<Worker[]>(() => MockApiService.getWorkers());
-  const [sites, setSites] = useState<Site[]>(() => MockApiService.getSites());
-  const [alerts, setAlerts] = useState<SafetyAlert[]>(() => MockApiService.getAlerts());
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>('all');
   const [tempUnit, setTempUnit] = useState<'C' | 'F'>('C');
   const [connectionMode, setConnectionMode] = useState<'live_socket' | 'simulated_engine'>('simulated_engine');
   const [isLiveConnected, setIsLiveConnected] = useState<boolean>(true);
 
-  // Sync with MockApiService on worker/site/alert state changes
+  // ── Backend API State ──────────────────────────────────────────────────
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [zonesLoading, setZonesLoading] = useState<boolean>(false);
+  const [zonesError, setZonesError] = useState<string | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [checkResult, setCheckResult] = useState<CheckResponse | null>(null);
+  const [checkLoading, setCheckLoading] = useState<boolean>(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [checkStartTime, setCheckStartTime] = useState<number | null>(null);
+  const [isCheckSimulated, setIsCheckSimulated] = useState<boolean>(false);
+  const checkAbortRef = useRef<AbortController | null>(null);
+
+  // Track latest workers state to avoid stale closures in subscriptions without putting side-effects in state updaters
+  const workersRef = useRef(workers);
   useEffect(() => {
-    MockApiService.saveWorkers(workers);
+    workersRef.current = workers;
   }, [workers]);
 
-  useEffect(() => {
-    MockApiService.saveSites(sites);
-  }, [sites]);
 
-  useEffect(() => {
-    MockApiService.saveAlerts(alerts);
-  }, [alerts]);
+
 
   // Subscribe to real-time service updates
   useEffect(() => {
@@ -83,33 +110,37 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     const unsubStatus = realtimeSafetyService.subscribeStatus((workerId, updates: any) => {
+      const currentWorkers = workersRef.current;
+      const worker = currentWorkers.find((w) => w.id === workerId);
+      if (!worker) return;
+
+      let newTemp = worker.currentTemp;
+      if (updates.currentTempDelta !== undefined) {
+        newTemp = parseFloat(Math.max(24, Math.min(50, worker.currentTemp + updates.currentTempDelta)).toFixed(1));
+      } else if (updates.currentTemp !== undefined) {
+        newTemp = updates.currentTemp;
+      }
+
+      const newStatus = getRiskLevel(newTemp, worker.customThreshold);
+
+      // Trigger toasts BEFORE state update to avoid calling them inside the pure updater function
+      if (newStatus === 'extreme' && worker.status !== 'extreme') {
+        showToast({
+          title: `🔥 CRITICAL HEAT: ${worker.name}`,
+          message: `${worker.name} entered EXTREME risk zone (${newTemp}°C). Evacuation or shade break required!`,
+          severity: 'extreme',
+        });
+      } else if (newStatus === 'danger' && (worker.status === 'safe' || worker.status === 'caution')) {
+        showToast({
+          title: `🔴 Danger Threshold Exceeded: ${worker.name}`,
+          message: `${worker.name} is now at ${newTemp}°C (Limit: ${worker.customThreshold}°C).`,
+          severity: 'danger',
+        });
+      }
+
       setWorkers((prevWorkers) =>
         prevWorkers.map((w) => {
           if (w.id !== workerId) return w;
-
-          let newTemp = w.currentTemp;
-          if (updates.currentTempDelta !== undefined) {
-            newTemp = parseFloat(Math.max(24, Math.min(50, w.currentTemp + updates.currentTempDelta)).toFixed(1));
-          } else if (updates.currentTemp !== undefined) {
-            newTemp = updates.currentTemp;
-          }
-
-          const newStatus = getRiskLevel(newTemp, w.customThreshold);
-
-          // Check if transitioned to a higher risk level and toast
-          if (newStatus === 'extreme' && w.status !== 'extreme') {
-            showToast({
-              title: `🔥 CRITICAL HEAT: ${w.name}`,
-              message: `${w.name} entered EXTREME risk zone (${newTemp}°C). Evacuation or shade break required!`,
-              severity: 'extreme',
-            });
-          } else if (newStatus === 'danger' && (w.status === 'safe' || w.status === 'caution')) {
-            showToast({
-              title: `🔴 Danger Threshold Exceeded: ${w.name}`,
-              message: `${w.name} is now at ${newTemp}°C (Limit: ${w.customThreshold}°C).`,
-              severity: 'danger',
-            });
-          }
 
           let updatedVitals = { ...w.vitals };
           if (updates.hrDelta !== undefined) {
@@ -197,11 +228,23 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Worker Handlers
   const addWorker = useCallback(
     (workerData: Omit<Worker, 'id' | 'status' | 'feelsLikeTemp' | 'heatIndex' | 'lastCheckIn' | 'breakRequested' | 'batteryLevel' | 'vitals'>) => {
-      const newW = MockApiService.addWorker(workerData);
-      setWorkers((prev) => [newW, ...prev]);
+      setWorkers((prev) => {
+        const newW = { 
+          ...workerData, 
+          id: `w-temp-${Date.now()}`, 
+          status: 'safe' as const, 
+          feelsLikeTemp: workerData.currentTemp, 
+          heatIndex: workerData.currentTemp, 
+          lastCheckIn: new Date().toISOString(),
+          vitals: { heartRate: 75, bodyTemp: 37.0, hydrationLevel: 100, heatStrainIndex: 1.0 },
+          breakRequested: false,
+          batteryLevel: 100
+        };
+        return [...prev, newW];
+      });
       showToast({
         title: 'Worker Registered',
-        message: `${newW.name} added to Sentinel monitoring system.`,
+        message: `Worker added to Sentinel monitoring system.`,
         severity: 'safe',
       });
     },
@@ -209,23 +252,22 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const updateWorker = useCallback((id: string, updates: Partial<Worker>) => {
-    const updated = MockApiService.updateWorker(id, updates);
-    if (updated) {
-      setWorkers((prev) => prev.map((w) => (w.id === id ? updated : w)));
-    }
+    setWorkers((prev) => {
+      return prev.map(w => w.id === id ? { ...w, ...updates } : w);
+    });
   }, []);
 
   const deleteWorker = useCallback(
     (id: string) => {
       const target = workers.find((w) => w.id === id);
-      if (MockApiService.deleteWorker(id)) {
-        setWorkers((prev) => prev.filter((w) => w.id !== id));
-        showToast({
-          title: 'Worker Removed',
-          message: `${target?.name || 'Worker'} deleted from Sentinel registry.`,
-          severity: 'caution',
-        });
-      }
+      setWorkers((prev) => {
+        return prev.filter((w) => w.id !== id);
+      });
+      showToast({
+        title: 'Worker Removed',
+        message: `${target?.name || 'Worker'} deleted from Sentinel registry.`,
+        severity: 'caution',
+      });
     },
     [workers, showToast]
   );
@@ -240,20 +282,26 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         breakRequestTime: new Date().toISOString(),
       });
 
-      const alert = MockApiService.addAlert({
-        workerId: worker.id,
-        workerName: worker.name,
-        siteId: worker.siteId,
-        siteName: worker.siteName,
-        severity: 'caution',
-        type: 'break_requested',
-        title: `Manager Dispatched Break: ${worker.name}`,
-        message: `Safety manager commanded 15-min mandatory cooling rotation to nearest hydration post.`,
-        temperature: worker.currentTemp,
-        threshold: worker.customThreshold,
+      setAlerts((prev) => {
+        const alert = {
+          id: `alert-temp-${Date.now()}`,
+          workerId: worker.id,
+          workerName: worker.name,
+          siteId: worker.siteId,
+          siteName: worker.siteName,
+          severity: 'caution' as const,
+          type: 'break_requested' as const,
+          title: `Manager Dispatched Break: ${worker.name}`,
+          message: `Safety manager commanded 15-min mandatory cooling rotation to nearest hydration post.`,
+          temperature: worker.currentTemp,
+          threshold: worker.customThreshold,
+          acknowledged: false,
+          resolved: false,
+          timestamp: new Date().toISOString()
+        };
+        return [alert, ...prev];
       });
 
-      setAlerts((prev) => [alert, ...prev]);
       showToast({
         title: 'Break Order Dispatched',
         message: `Break alert transmitted directly to ${worker.name}'s Sentinel device.`,
@@ -268,19 +316,25 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const worker = workers.find((w) => w.id === workerId);
       if (!worker) return;
 
-      const alert = MockApiService.addAlert({
-        workerId: worker.id,
-        workerName: worker.name,
-        siteId: worker.siteId,
-        siteName: worker.siteName,
-        severity: 'safe',
-        type: 'hydration_needed',
-        title: `Hydration Prompt: ${worker.name}`,
-        message: `Supervisor dispatched hydration nudge: 500ml cold electrolyte intake recommended.`,
-        temperature: worker.currentTemp,
+      setAlerts((prev) => {
+        const alert = {
+          id: `alert-temp-${Date.now()}`,
+          workerId: worker.id,
+          workerName: worker.name,
+          siteId: worker.siteId,
+          siteName: worker.siteName,
+          severity: 'safe' as const,
+          type: 'hydration_needed' as const,
+          title: `Hydration Prompt: ${worker.name}`,
+          message: `Supervisor dispatched hydration nudge: 500ml cold electrolyte intake recommended.`,
+          temperature: worker.currentTemp,
+          acknowledged: false,
+          resolved: false,
+          timestamp: new Date().toISOString()
+        };
+        return [alert, ...prev];
       });
 
-      setAlerts((prev) => [alert, ...prev]);
       showToast({
         title: 'Hydration Prompt Sent',
         message: `Hydration reminder delivered to ${worker.name}.`,
@@ -303,14 +357,18 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       const site = sites.find((s) => s.id === (selectedSiteId !== 'all' ? selectedSiteId : sites[0]?.id));
-      const alert = MockApiService.addAlert({
+      const alert = {
+        id: `alert-temp-${Date.now()}`,
         siteId: site?.id || 'all-sites',
         siteName: site?.name || 'All Active Sites',
-        severity: 'danger',
-        type: 'break_requested',
+        severity: 'danger' as const,
+        type: 'break_requested' as const,
         title: `🚨 Bulk Cool-Down Rotation Broadcast`,
         message: `Mandatory heat-break protocol issued to ${workerIds.length} workers simultaneously.`,
-      });
+        acknowledged: false,
+        resolved: false,
+        timestamp: new Date().toISOString()
+      };
 
       setAlerts((prev) => [alert, ...prev]);
       showToast({
@@ -325,11 +383,13 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Site Handlers
   const addSite = useCallback(
     (siteData: Omit<Site, 'id' | 'workerCount' | 'atRiskCount' | 'extremeCount' | 'cautionCount' | 'safeCount'>) => {
-      const newS = MockApiService.addSite(siteData);
-      setSites((prev) => [...prev, newS]);
+      setSites((prev) => {
+        const newS = { ...siteData, id: `s-temp-${Date.now()}`, workerCount: 0, atRiskCount: 0, extremeCount: 0, cautionCount: 0, safeCount: 0, currentTemp: 25 };
+        return [...prev, newS];
+      });
       showToast({
         title: 'New Site Configured',
-        message: `${newS.name} (${newS.city}, ${newS.state}) activated.`,
+        message: `Site activated.`,
         severity: 'safe',
       });
     },
@@ -337,23 +397,18 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const updateSite = useCallback((id: string, updates: Partial<Site>) => {
-    const updated = MockApiService.updateSite(id, updates);
-    if (updated) {
-      setSites((prev) => prev.map((s) => (s.id === id ? updated : s)));
-    }
+    setSites((prev) => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   }, []);
 
   const deleteSite = useCallback(
     (id: string) => {
       const target = sites.find((s) => s.id === id);
-      if (MockApiService.deleteSite(id)) {
-        setSites((prev) => prev.filter((s) => s.id !== id));
-        showToast({
-          title: 'Site Removed',
-          message: `${target?.name || 'Site'} deleted from monitoring network.`,
-          severity: 'caution',
-        });
-      }
+      setSites((prev) => prev.filter((s) => s.id !== id));
+      showToast({
+        title: 'Site Removed',
+        message: `${target?.name || 'Site'} deleted from monitoring network.`,
+        severity: 'caution',
+      });
     },
     [sites, showToast]
   );
@@ -361,30 +416,24 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Alert Handlers
   const acknowledgeAlert = useCallback(
     (alertId: string) => {
-      const ack = MockApiService.acknowledgeAlert(alertId, 'Safety Lead');
-      if (ack) {
-        setAlerts((prev) => prev.map((a) => (a.id === alertId ? ack : a)));
-        showToast({
-          title: 'Alert Acknowledged',
-          message: 'Incident acknowledged and logged.',
-          severity: 'safe',
-        });
-      }
+      setAlerts((prev) => prev.map(a => a.id === alertId ? { ...a, acknowledged: true } : a));
+      showToast({
+        title: 'Alert Acknowledged',
+        message: 'Incident acknowledged and logged.',
+        severity: 'safe',
+      });
     },
     [showToast]
   );
 
   const resolveAlert = useCallback(
     (alertId: string) => {
-      const res = MockApiService.resolveAlert(alertId);
-      if (res) {
-        setAlerts((prev) => prev.map((a) => (a.id === alertId ? res : a)));
-        showToast({
-          title: 'Alert Resolved',
-          message: 'Safety incident marked as resolved.',
-          severity: 'safe',
-        });
-      }
+      setAlerts((prev) => prev.map(a => a.id === alertId ? { ...a, resolved: true } : a));
+      showToast({
+        title: 'Alert Resolved',
+        message: 'Safety incident marked as resolved.',
+        severity: 'safe',
+      });
     },
     [showToast]
   );
@@ -410,16 +459,124 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const resetAllData = useCallback(() => {
-    MockApiService.resetToDefaults();
-    setWorkers(MockApiService.getWorkers());
-    setSites(MockApiService.getSites());
-    setAlerts(MockApiService.getAlerts());
+    setWorkers([]);
+    setSites([]);
+    setAlerts([]);
     showToast({
       title: 'System Reset',
       message: 'Restored default demo job sites, workers, and alert telemetry.',
       severity: 'safe',
     });
   }, [showToast]);
+
+  // ── Backend API Actions ──────────────────────────────────────────────────
+
+  const loadZones = useCallback(async () => {
+    setZonesLoading(true);
+    setZonesError(null);
+    try {
+      const data = await fetchZones();
+      setZones(data.zones);
+      // Auto-select first zone if none selected
+      if (data.zones.length > 0 && !selectedZoneId) {
+        setSelectedZoneId(data.zones[0].id);
+      }
+    } catch (err: unknown) {
+      const msg = getErrorMessage(err);
+      setZonesError(msg);
+      showToast({
+        title: 'Failed to Load Zones',
+        message: msg,
+        severity: 'danger',
+      });
+    } finally {
+      setZonesLoading(false);
+    }
+  }, [selectedZoneId, showToast]);
+
+  // Load zones on mount
+  useEffect(() => {
+    loadZones();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const cancelCheck = useCallback(() => {
+    if (checkAbortRef.current) {
+      checkAbortRef.current.abort();
+      checkAbortRef.current = null;
+    }
+    setCheckLoading(false);
+    setCheckStartTime(null);
+  }, []);
+
+  const performCheck = useCallback(
+    async (zoneId: string, options: CheckRequest = {}) => {
+      // Cancel any in-flight check
+      cancelCheck();
+
+      const controller = new AbortController();
+      checkAbortRef.current = controller;
+
+      setCheckLoading(true);
+      setCheckError(null);
+      setCheckResult(null);
+      setCheckStartTime(Date.now());
+      setIsCheckSimulated(options.simulate === true);
+
+      try {
+        const result = await checkZone(zoneId, options, controller.signal);
+        setCheckResult(result);
+
+        // Show toast for alert-level results
+        if (result.action === 'alert') {
+          showToast({
+            title: `⚠️ Heat Alert: ${result.zone_name}`,
+            message: result.explanation || result.guidance,
+            severity: 'danger',
+          });
+        } else {
+          showToast({
+            title: `✅ Check Complete: ${result.zone_name}`,
+            message: `${result.risk_label} — ${result.apparent_temperature_c.toFixed(1)}°C apparent temperature`,
+            severity: 'safe',
+          });
+        }
+      } catch (err: unknown) {
+        // Don't treat AbortError as a real error
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        const msg = getErrorMessage(err);
+        setCheckError(msg);
+        showToast({
+          title: 'Check Failed',
+          message: msg,
+          severity: 'danger',
+        });
+      } finally {
+        setCheckLoading(false);
+        setCheckStartTime(null);
+        checkAbortRef.current = null;
+      }
+    },
+    [cancelCheck, showToast]
+  );
+
+  const performSimulation = useCallback(
+    async (zoneId: string, tempC: number = 42.0) => {
+      return performCheck(zoneId, {
+        simulate: true,
+        simulate_temp_c: tempC,
+      });
+    },
+    [performCheck]
+  );
+
+  const clearCheckResult = useCallback(() => {
+    setCheckResult(null);
+    setCheckError(null);
+    setIsCheckSimulated(false);
+  }, []);
 
   return (
     <SafetyContext.Provider
@@ -448,6 +605,22 @@ export const SafetyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         simulateHeatSpike,
         simulateWorkerSos,
         resetAllData,
+        // Backend API state
+        zones,
+        zonesLoading,
+        zonesError,
+        selectedZoneId,
+        setSelectedZoneId,
+        checkResult,
+        checkLoading,
+        checkError,
+        checkStartTime,
+        isCheckSimulated,
+        loadZones,
+        performCheck,
+        performSimulation,
+        cancelCheck,
+        clearCheckResult,
       }}
     >
       {children}

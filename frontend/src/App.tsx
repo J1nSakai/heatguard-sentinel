@@ -20,11 +20,18 @@ import { FieldWorkerPage } from './pages/FieldWorkerPage';
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const isFieldWorkerPortal = location.pathname.startsWith('/worker-view');
+  const isDashboard = location.pathname === '/';
 
   if (isFieldWorkerPortal) {
     return <main className="min-h-screen bg-[#070a10]">{children}</main>;
   }
 
+  // Full-screen Thermal Intelligence Console layout for the main dashboard
+  if (isDashboard) {
+    return <main className="min-h-screen bg-stone-50 text-stone-800">{children}</main>;
+  }
+
+  // Legacy layout for other working routes
   return (
     <div className="flex min-h-screen bg-[#0b0f17] text-slate-100">
       {/* Desktop Command Sidebar */}

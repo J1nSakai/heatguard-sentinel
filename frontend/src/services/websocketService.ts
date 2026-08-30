@@ -24,8 +24,9 @@ class RealtimeSafetyService {
     // Attempt socket connection to backend
     try {
       this.socket = io('http://localhost:3001', {
-        autoConnect: true,
-        reconnectionAttempts: 2,
+        autoConnect: false,
+        reconnection: false,
+        reconnectionAttempts: 0,
         timeout: 3000,
       });
 
