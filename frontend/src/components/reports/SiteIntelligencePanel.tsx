@@ -61,6 +61,9 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
     
     setCheckError(null);
     try {
+      if (!simulate) {
+        loadReport(false);
+      }
       const result = await onRunCheck(simulate, simulateTemp, recipientEmail || undefined, thresholdVal);
       if (result) {
         setLatestCheck(result);
@@ -120,10 +123,11 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
               <label className="block text-[9px] font-bold uppercase tracking-widest text-stone-500 mb-1">Alert Email</label>
               <input
                 type="email"
+            disabled={checkLoading || reportLoading}
                 value={recipientEmail}
                 onChange={(e) => setRecipientEmail(e.target.value)}
                 placeholder="manager@example.com"
-                className="w-full border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-transparent transition-colors"
+                className="w-full border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-transparent transition-colors disabled:bg-stone-200/50 disabled:cursor-not-allowed"
               />
             </div>
             <div className="w-1/3 min-w-[100px]">
@@ -143,11 +147,20 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
         <div className="flex flex-col xl:flex-row gap-3">
           <button
             onClick={() => handleAction(false)}
-            disabled={checkLoading}
-            className="flex-1 flex items-center justify-center gap-2 border-2 border-stone-800 bg-stone-800 text-stone-50 hover:bg-stone-900 active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 text-xs font-black transition-all uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 focus:ring-offset-stone-50"
+            disabled={checkLoading || reportLoading}
+            className="flex-1 flex items-center justify-center gap-2 border-2 border-stone-800 bg-stone-800 text-stone-50 hover:bg-stone-900 active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 text-xs font-black transition-all uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 focus:ring-offset-stone-50 shadow-sm"
           >
-            <Search className="h-4 w-4" />
-            <span>Analyze Heat Risk</span>
+            {checkLoading || reportLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-stone-300" />
+                <span>Analyzing Heat Risk... {elapsedSeconds > 0 && `(${elapsedSeconds}s)`}</span>
+              </>
+            ) : (
+              <>
+                <Search className="h-4 w-4" />
+                <span>Analyze Heat Risk</span>
+              </>
+            )}
           </button>
 
           <div className="flex items-stretch border border-stone-300 bg-stone-100 p-1 relative mt-1 xl:mt-0">
@@ -158,17 +171,18 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
               <label className="text-[8px] font-bold uppercase tracking-widest text-stone-400">Temp °C</label>
               <input
                 type="number"
+                disabled={checkLoading || reportLoading}
                 value={simulateTemp}
                 onChange={(e) => setSimulateTemp(parseFloat(e.target.value) || 42)}
                 min={20}
                 max={60}
                 step={0.5}
-                className="w-10 bg-transparent text-xs font-mono font-bold text-stone-700 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                className="w-10 bg-transparent text-xs font-mono font-bold text-stone-700 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
             <button
               onClick={() => handleAction(true)}
-              disabled={checkLoading}
+              disabled={checkLoading || reportLoading}
               className="flex items-center justify-center bg-stone-300 hover:bg-stone-400 active:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 text-[9px] font-black uppercase tracking-widest text-stone-800 transition-colors focus:outline-none focus:ring-2 focus:ring-stone-500"
             >
               Simulate
@@ -221,74 +235,161 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
 
         {/* 4. HISTORICAL SITE INTELLIGENCE */}
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-400">
-              Historical Site Intelligence
-            </h2>
-
-            {cachedTime && !reportLoading && (
-              <div className="flex items-center gap-1 text-[9px] font-bold text-stone-400 uppercase tracking-widest">
-                <span className="text-stone-800">● CACHED</span>
-                <span>· Updated {Math.round((Date.now() - cachedTime) / 60000)}m ago</span>
-                <button onClick={() => loadReport(true)} className="ml-2 bg-stone-200 hover:bg-stone-300 text-stone-600 px-2 py-0.5 rounded-sm transition-colors">
-                  Refresh
-                </button>
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-800">
+                Historical Site Intelligence
+              </h2>
+              <div className="text-[8px] font-bold uppercase tracking-widest text-stone-400">
+                3-Day Thermal Pattern & Danger Exceedance
               </div>
-            )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {cachedTime && !reportLoading && report && (
+                <div className="flex items-center gap-1 text-[8px] font-bold text-stone-500 uppercase tracking-widest bg-stone-100 border border-stone-200 px-2 py-0.5 rounded">
+                  <span className="text-stone-800">● CACHED</span>
+                  <span>· {Math.round((Date.now() - cachedTime) / 60000)}m ago</span>
+                </div>
+              )}
+              {!cachedTime && !reportLoading && report && (
+                <div className="flex items-center gap-1 text-[8px] font-bold text-emerald-700 uppercase tracking-widest bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                  <span>● LIVE REPORT</span>
+                </div>
+              )}
+              <button
+                onClick={() => loadReport(true)}
+                disabled={reportLoading}
+                title="Refresh historical analysis"
+                className="text-[8px] font-bold uppercase tracking-widest bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 px-2 py-1 transition-colors disabled:opacity-50"
+              >
+                {reportLoading ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
           </div>
 
           {reportLoading && !report ? (
             <div className="flex flex-col items-center justify-center py-10 border border-stone-200 bg-stone-100/50">
-              <div className="h-6 w-6 border-2 border-stone-300 border-t-stone-800 rounded-full animate-spin mb-4"></div>
+              <div className="h-6 w-6 border-2 border-stone-300 border-t-stone-800 rounded-full animate-spin mb-3"></div>
               <p className="text-[10px] font-bold text-stone-600 uppercase tracking-widest mb-1">Analyzing Site History</p>
-              <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Building the 3-day thermal profile...</p>
+              <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Building 3-day thermal profile from FortyGuard API...</p>
             </div>
           ) : reportError ? (
-            <div className="flex flex-col items-center justify-center py-6 border border-rose-200 bg-rose-50">
+            <div className="flex flex-col items-center justify-center py-6 border border-rose-200 bg-rose-50 p-4">
               <AlertCircle className="h-5 w-5 text-rose-500 mb-2" />
-              <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest px-4 text-center">
+              <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest px-4 text-center mb-3">
                 Historical site intelligence is temporarily unavailable.
               </p>
+              <button
+                onClick={() => loadReport(true)}
+                className="text-[9px] font-bold uppercase tracking-widest bg-white border border-stone-300 px-3 py-1 hover:bg-stone-100 text-stone-700 transition-colors"
+              >
+                Retry Report
+              </button>
             </div>
           ) : report ? (
-            <div className="border border-stone-300 p-4 bg-white">
-              <h3 className="text-[11px] font-black uppercase tracking-widest text-stone-800 mb-4 pb-2 border-b border-stone-200">
-                3-Day Site Pattern
-              </h3>
-
-              <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="border border-stone-300 p-4 bg-white space-y-4">
+              
+              {/* Daily Thermal Pattern Hourly Blocks */}
+              {report.time_of_day?.ranked_blocks && report.time_of_day.ranked_blocks.length > 0 && (
                 <div>
-                  <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">Risk Profile</div>
-                  <div className="text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-0.5">Exceedance: <span className="font-mono text-stone-800">{report.exceedance.mean_hours}</span> hrs</div>
-                  <div className="text-[10px] font-bold text-stone-600 uppercase tracking-wider">Persistence: <span className="font-mono text-stone-800">{report.persistence.mean_hours}</span> hrs</div>
-                </div>
-                <div>
-                  <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">Overall Danger</div>
-                  <div className="text-xl font-mono font-black text-rose-600 leading-none">{report.pct_time_in_danger}%</div>
-                </div>
-              </div>
+                  <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-2">
+                    <span>Daily Thermal Heat Distribution</span>
+                    <span className="font-mono text-stone-500">Threshold: {report.threshold_c}°C</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[...report.time_of_day.ranked_blocks]
+                      .sort((a, b) => parseInt(a.label) - parseInt(b.label))
+                      .map((block) => {
+                        let barColor = 'bg-emerald-400';
+                        let textColor = 'text-emerald-700';
+                        if (block.avg_temp_c >= report.threshold_c + 2) {
+                          barColor = 'bg-rose-500';
+                          textColor = 'text-rose-700';
+                        } else if (block.avg_temp_c >= report.threshold_c) {
+                          barColor = 'bg-orange-400';
+                          textColor = 'text-orange-700';
+                        } else if (block.avg_temp_c >= report.threshold_c - 2) {
+                          barColor = 'bg-amber-400';
+                          textColor = 'text-amber-700';
+                        }
 
-              {report.time_of_day?.safest_block && (
-                <div className="mb-4 border-t border-stone-200 pt-4">
-                  <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-1">Recommended Operation Window</div>
-                  <div className="text-sm font-black text-emerald-600 tracking-wider">
-                    {report.time_of_day.safest_block.label} (Safest Block)
+                        return (
+                          <div key={block.block_id} className="flex-1 flex flex-col items-center">
+                            <div className={`h-8 w-full ${barColor} rounded-sm mb-1.5 transition-transform hover:scale-105 shadow-sm`} />
+                            <div className="text-[8px] font-mono font-bold text-stone-600 text-center leading-none mb-0.5">
+                              {block.label.replace('–', '-')}
+                            </div>
+                            <div className={`text-[8px] font-mono font-black ${textColor}`}>
+                              {block.avg_temp_c.toFixed(1)}°
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               )}
 
+              {/* 4-Stat Risk Matrix */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-stone-200">
+                <div className="bg-stone-50 p-2.5 border border-stone-200">
+                  <div className="text-[8px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">Danger Exposure</div>
+                  <div className="text-lg font-mono font-black text-rose-600 leading-none">{report.pct_time_in_danger}%</div>
+                </div>
+                <div className="bg-stone-50 p-2.5 border border-stone-200">
+                  <div className="text-[8px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">Mean Exceedance</div>
+                  <div className="text-sm font-mono font-bold text-stone-800 leading-none mt-1">{report.exceedance.mean_hours} <span className="text-[9px] text-stone-500 font-sans">hrs</span></div>
+                </div>
+                <div className="bg-stone-50 p-2.5 border border-stone-200">
+                  <div className="text-[8px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">Mean Persistence</div>
+                  <div className="text-sm font-mono font-bold text-stone-800 leading-none mt-1">{report.persistence.mean_hours} <span className="text-[9px] text-stone-500 font-sans">hrs</span></div>
+                </div>
+                <div className="bg-stone-50 p-2.5 border border-stone-200">
+                  <div className="text-[8px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">Heat Threshold</div>
+                  <div className="text-sm font-mono font-bold text-stone-800 leading-none mt-1">{report.threshold_c}°C</div>
+                </div>
+              </div>
+
+              {/* Operational Shift Window Recommendation */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-stone-200">
+                <div className="p-2.5 bg-emerald-50/60 border border-emerald-200 rounded-sm">
+                  <div className="text-[8px] font-black uppercase tracking-widest text-emerald-700 mb-1">
+                    ✓ Recommended Shift Window
+                  </div>
+                  <div className="text-xs font-black text-emerald-800 tracking-wider">
+                    {report.time_of_day?.safest_block ? `${report.time_of_day.safest_block.label} (Safest)` : 'Morning Shift (06:00–10:00)'}
+                  </div>
+                </div>
+                <div className="p-2.5 bg-rose-50/60 border border-rose-200 rounded-sm">
+                  <div className="text-[8px] font-black uppercase tracking-widest text-rose-700 mb-1">
+                    ⚠ Peak Heat Hazard Window
+                  </div>
+                  <div className="text-xs font-black text-rose-800 tracking-wider">
+                    {[...report.time_of_day.ranked_blocks].sort((a, b) => b.avg_temp_c - a.avg_temp_c)[0]?.label || 'Midday (14:00–18:00)'}
+                  </div>
+                </div>
+              </div>
+
+              {/* FortyGuard Urban Heat Island & Pattern Context */}
               {report.why_hot && (typeof report.why_hot === 'string' || report.why_hot.explanation) && (
-                <div className="border-t border-stone-200 pt-4">
-                  <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-1">Site Pattern</div>
-                  <p className="text-[11px] text-stone-700 leading-relaxed font-serif italic">
+                <div className="border-t border-stone-200 pt-3">
+                  <div className="text-[8px] font-black uppercase tracking-widest text-stone-400 mb-1">
+                    FortyGuard Site Pattern Analysis
+                  </div>
+                  <p className="text-[11px] text-stone-700 leading-relaxed font-serif italic bg-stone-50 p-2.5 border border-stone-200">
                     "{typeof report.why_hot === 'string' ? report.why_hot : report.why_hot.explanation}"
                   </p>
                 </div>
               )}
             </div>
           ) : (
-            <div className="border border-dashed border-stone-300 p-4 text-[10px] uppercase tracking-widest text-stone-400 text-center">
-              Placeholder: Historical Pattern
+            <div className="border border-dashed border-stone-300 p-6 text-center bg-stone-50/50">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500 mb-1">
+                Site Selected · Awaiting Analysis
+              </p>
+              <p className="text-[10px] text-stone-400">
+                Click <span className="font-bold text-stone-700">"Analyze Heat Risk"</span> above to generate the live thermal pattern and exceedance report.
+              </p>
             </div>
           )}
         </div>

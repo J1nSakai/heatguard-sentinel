@@ -121,17 +121,33 @@ export async function fetchReport(
 }
 
 /**
- * GET /zones/{zone_id}/alerts — Fetch alert history for a zone.
- * Priority 3 endpoint.
+ * POST /zones/report — Fetch historical pattern report for a custom pinned coordinate.
+ */
+export async function fetchPinnedReport(
+  location: import('../types/api').PinnedLocationRequest,
+  signal?: AbortSignal
+): Promise<ReportResponse> {
+  const response = await fetch(`${API_BASE_URL}/zones/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(location),
+    signal,
+  });
+  return handleResponse<ReportResponse>(response);
+}
+
+/**
+ * GET /zones/alerts — Fetch all fired alert history (across all zones).
+ * Returns the most recent `limit` entries from the server-side alerts.jsonl log,
+ * newest first.
  */
 export async function fetchAlerts(
-  zoneId: string,
   limit: number = 50,
   signal?: AbortSignal
 ): Promise<AlertsResponse> {
   const params = new URLSearchParams({ limit: String(limit) });
   const response = await fetch(
-    `${API_BASE_URL}/zones/${encodeURIComponent(zoneId)}/alerts?${params}`,
+    `${API_BASE_URL}/zones/alerts?${params}`,
     {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },

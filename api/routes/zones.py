@@ -83,6 +83,40 @@ def list_zones():
     return {"zones": zones}
 
 
+@router.get("/alerts")
+def get_all_alerts(limit: int = 50):
+    """
+    Returns the most recent `limit` alerts from data/logs/alerts.jsonl,
+    newest first. Returns an empty list if the log file doesn't exist yet.
+
+    This is the production-safe endpoint consumed by the frontend AlertsSidebar.
+    NOTE: This route MUST be registered before /{zone_id}/... routes so FastAPI
+    does not match the literal string "alerts" as a zone_id path parameter.
+    """
+    if not ALERTS_LOG_PATH.exists():
+        return {"alerts": []}
+
+    try:
+        lines = ALERTS_LOG_PATH.read_text(encoding="utf-8").splitlines()
+        # Parse each line as JSON, skip blank/malformed lines
+        parsed = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        # Newest first, capped at limit
+        return {"alerts": list(reversed(parsed))[:limit]}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read alert log: {exc}",
+        )
+
+
 @router.get("/{zone_id}/report")
 def get_zone_report(zone_id: str, window_days: int = 7, profile_days: int = 3):
     """Full site report for one of the pre-loaded demo zones."""

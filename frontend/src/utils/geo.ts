@@ -35,3 +35,76 @@ export function getDistanceFromLatLonInKm(
 function deg2rad(deg: number): number {
   return deg * (Math.PI / 180);
 }
+
+/**
+ * US bounding boxes (approximate):
+ *  - Contiguous 48 states
+ *  - Alaska
+ *  - Hawaii
+ *
+ * Returns true if the coordinate falls inside any of these regions.
+ * Used to validate user-typed lat/lng before pinning the map.
+ */
+export function isWithinUSA(lat: number, lon: number): boolean {
+  // Contiguous 48 states
+  const contiguous =
+    lat >= 24.396308 && lat <= 49.384358 &&
+    lon >= -125.001651 && lon <= -66.93457;
+
+  // Alaska (very rough bounding box)
+  const alaska =
+    lat >= 51.2 && lat <= 71.5 &&
+    lon >= -180.0 && lon <= -129.0;
+
+  // Hawaii (rough bounding box)
+  const hawaii =
+    lat >= 18.9 && lat <= 22.25 &&
+    lon >= -160.3 && lon <= -154.8;
+
+  return contiguous || alaska || hawaii;
+}
+
+export interface GeocodeResult {
+  lat: number;
+  lon: number;
+  displayName: string;
+}
+
+/**
+ * Geocodes an address or place name within the United States using OpenStreetMap Nominatim.
+ * Automatically filters results to ensure coordinates are inside US borders.
+ */
+export async function geocodeAddress(
+  query: string,
+  signal?: AbortSignal
+): Promise<GeocodeResult[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+    trimmed
+  )}&countrycodes=us&limit=5&addressdetails=1`;
+
+  const response = await fetch(url, {
+    headers: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error('Geocoding service unavailable');
+  }
+
+  const data = await response.json();
+  if (!Array.isArray(data)) return [];
+
+  return data
+    .map((item: any) => ({
+      lat: parseFloat(item.lat),
+      lon: parseFloat(item.lon),
+      displayName: item.display_name,
+    }))
+    .filter((item: GeocodeResult) => !isNaN(item.lat) && !isNaN(item.lon) && isWithinUSA(item.lat, item.lon));
+}
+

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { ReportResponse } from '../types/api';
-import { fetchReport, getErrorMessage } from '../services/apiClient';
+import { useState, useEffect } from "react";
+import { ReportResponse } from "../types/api";
+import { fetchReport, getErrorMessage } from "../services/apiClient";
 
 export function useSiteReport(selectedZoneId: string | null) {
   const [report, setReport] = useState<ReportResponse | null>(null);
@@ -12,7 +12,7 @@ export function useSiteReport(selectedZoneId: string | null) {
     if (!selectedZoneId) return;
     setReportLoading(true);
     setReportError(null);
-    
+
     const cacheKey = `sentinel_cache:report:${selectedZoneId}:3:3`;
 
     try {
@@ -34,7 +34,10 @@ export function useSiteReport(selectedZoneId: string | null) {
       }
 
       const freshData = await fetchReport(selectedZoneId, 3, 3);
-      localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: freshData }));
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({ timestamp: Date.now(), data: freshData }),
+      );
       setReport(freshData);
       setCachedTime(Date.now());
     } catch (err) {
@@ -49,9 +52,6 @@ export function useSiteReport(selectedZoneId: string | null) {
     setReport(null);
     setCachedTime(null);
     setReportError(null);
-    if (selectedZoneId) {
-      loadReport();
-    }
   }, [selectedZoneId]);
 
   return { report, reportLoading, reportError, cachedTime, loadReport };

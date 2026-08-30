@@ -22,7 +22,7 @@ const createZoneIcon = (isSelected: boolean) => {
   });
 };
 
-// Create a custom icon for the user's clicked location
+// Create a custom icon for the user's clicked location (map click → nearest zone snap)
 const clickIcon = L.divIcon({
   html: `
     <div class="relative flex items-center justify-center">
@@ -35,6 +35,21 @@ const clickIcon = L.divIcon({
   iconAnchor: [10, 10],
 });
 
+// Distinct crosshair icon for the manually typed coordinate pin
+const pinnedIcon = L.divIcon({
+  html: `
+    <div style="position:relative;width:28px;height:28px;display:flex;align-items:center;justify-content:center">
+      <div style="width:14px;height:14px;border-radius:50%;background:#6366f1;border:2px solid #fff;box-shadow:0 0 0 3px rgba(99,102,241,0.35);position:relative;z-index:1"></div>
+      <div style="position:absolute;inset:0;border-radius:50%;background:rgba(99,102,241,0.18);animation:pinPulse 1.6s ease-out infinite"></div>
+    </div>
+    <style>@keyframes pinPulse{0%{transform:scale(1);opacity:.7}70%{transform:scale(2);opacity:0}100%{transform:scale(2);opacity:0}}</style>
+  `,
+  className: 'custom-pinned-marker',
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+  popupAnchor: [0, -14],
+});
+
 // Helper component to center map smoothly when selected zone changes
 const MapCenterController: React.FC<{ lat: number; lng: number; zoom: number }> = ({ lat, lng, zoom }) => {
   const map = useMap();
@@ -45,10 +60,12 @@ const MapCenterController: React.FC<{ lat: number; lng: number; zoom: number }> 
 };
 
 // Helper component to handle map clicks
-const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void }> = ({ onMapClick }) => {
+const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void; disabled?: boolean }> = ({ onMapClick, disabled }) => {
   useMapEvents({
     click(e) {
-      onMapClick(e.latlng.lat, e.latlng.lng);
+      if (!disabled) {
+        onMapClick(e.latlng.lat, e.latlng.lng);
+      }
     },
   });
   return null;
@@ -58,6 +75,9 @@ interface ZoneSelectionMapProps {
   zones: Zone[];
   selectedZoneId: string | null;
   clickedLocation: { lat: number; lng: number } | null;
+  /** Manually typed lat/lng coordinate — rendered as an indigo pin, separate from the click-snapped marker */
+  pinnedLocation: { lat: number; lng: number } | null;
+  disabled?: boolean;
   onMapClick: (lat: number, lng: number) => void;
   onZoneMarkerClick: (zoneId: string) => void;
 }
@@ -66,14 +86,19 @@ export const ZoneSelectionMap: React.FC<ZoneSelectionMapProps> = ({
   zones,
   selectedZoneId,
   clickedLocation,
+  pinnedLocation,
+  disabled = false,
   onMapClick,
   onZoneMarkerClick,
 }) => {
-  // Determine center. Default to Phoenix if no zones or selection.
+  // Priority: typed pin > map click > selected zone > first zone > Phoenix default
   let centerLat = 33.4484;
   let centerLng = -112.0740;
-  
-  if (clickedLocation) {
+
+  if (pinnedLocation) {
+    centerLat = pinnedLocation.lat;
+    centerLng = pinnedLocation.lng;
+  } else if (clickedLocation) {
     centerLat = clickedLocation.lat;
     centerLng = clickedLocation.lng;
   } else if (selectedZoneId && zones.length > 0) {
@@ -88,7 +113,7 @@ export const ZoneSelectionMap: React.FC<ZoneSelectionMapProps> = ({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-inner h-[280px]">
+    <div className="relative overflow-hidden w-full h-full bg-slate-900">
       <MapContainer
         center={[centerLat, centerLng]}
         zoom={12}
@@ -113,7 +138,11 @@ export const ZoneSelectionMap: React.FC<ZoneSelectionMapProps> = ({
               position={[zone.lat, zone.lon]}
               icon={createZoneIcon(isSelected)}
               eventHandlers={{
-                click: () => onZoneMarkerClick(zone.id),
+                click: () => {
+                  if (!disabled) {
+                    onZoneMarkerClick(zone.id);
+                  }
+                },
               }}
             >
               <Popup>
@@ -126,18 +155,33 @@ export const ZoneSelectionMap: React.FC<ZoneSelectionMapProps> = ({
           );
         })}
 
-        {/* Render clicked location marker if it exists */}
+        {/* Render map-click snap marker */}
         {clickedLocation && (
           <Marker position={[clickedLocation.lat, clickedLocation.lng]} icon={clickIcon} />
         )}
+
+        {/* Render manually typed coordinate pin */}
+        {pinnedLocation && (
+          <Marker position={[pinnedLocation.lat, pinnedLocation.lng]} icon={pinnedIcon}>
+            <Popup>
+              <div className="text-xs p-1">
+                <div className="font-bold text-slate-800">Pinned Location</div>
+                <div className="text-slate-500 font-mono">{pinnedLocation.lat.toFixed(5)}, {pinnedLocation.lng.toFixed(5)}</div>
+              </div>
+            </Popup>
+          </Marker>
+        )}
       </MapContainer>
-      
-      {/* Map Overlay Instructions */}
-      <div className="absolute top-3 left-3 z-[400] pointer-events-none">
-        <div className="rounded-lg border border-slate-700/80 bg-slate-900/90 px-3 py-1.5 backdrop-blur-md shadow-xl text-xs font-semibold text-slate-300">
-          📍 Click anywhere to find the nearest zone
+
+      {/* Map Locked Overlay during Active Analysis */}
+      {disabled && (
+        <div className="absolute inset-0 z-[500] bg-stone-950/20 backdrop-blur-[1px] cursor-not-allowed flex items-start justify-center pt-3 pointer-events-auto">
+          <div className="bg-stone-900/95 text-stone-200 border border-stone-700 px-3.5 py-1.5 rounded-full shadow-2xl text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 animate-pulse">
+            <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+            Analysis in progress · Map interaction locked
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

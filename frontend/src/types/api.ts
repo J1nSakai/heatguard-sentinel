@@ -23,6 +23,17 @@ export interface ZonesResponse {
   zones: Zone[];
 }
 
+// ── POST /zones/report ───────────────────────────────────────────────────────
+
+export interface PinnedLocationRequest {
+  lat: number;
+  lon: number;
+  name?: string;
+  worker_type?: string;
+  window_days?: number;
+  profile_days?: number;
+}
+
 // ── POST /zones/{zone_id}/check ─────────────────────────────────────────────
 
 export interface CheckRequest {
