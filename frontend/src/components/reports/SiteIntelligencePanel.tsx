@@ -58,7 +58,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
 
   return (
     <div className="h-full flex flex-col bg-stone-50 overflow-y-auto custom-scrollbar border-l border-stone-300">
-      
+
       {/* 1. SITE LOCATION */}
       <div className="p-6 border-b border-stone-300">
         <h2 className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-2">Monitored Site Found</h2>
@@ -79,7 +79,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
       {/* 2. CURRENT HEAT STATUS & ACTION */}
       <div className="p-6 border-b border-stone-300 bg-stone-100/50">
         <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Current Heat Status</h2>
-        
+
         {latestCheck ? (
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
@@ -132,7 +132,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
             </button>
           </div>
         </div>
-        
+
         {checkError && (
           <div className="mt-3 text-rose-600 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 bg-rose-50 border border-rose-100 p-2">
             <AlertCircle className="h-3 w-3" />
@@ -146,9 +146,9 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
         {(checkLoading || latestCheck) && (
           <div>
             <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-4">Sentinel Decision</h2>
-            <SentinelDecisionCard 
-              checkResult={latestCheck} 
-              isLoading={checkLoading} 
+            <SentinelDecisionCard
+              checkResult={latestCheck}
+              isLoading={checkLoading}
               elapsedSeconds={elapsedSeconds}
               isSimulated={latestCheckIsSimulated}
               zoneName={selectedZone.name}
@@ -162,7 +162,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
             <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-400">
               Historical Site Intelligence
             </h2>
-            
+
             {cachedTime && !reportLoading && (
               <div className="flex items-center gap-1 text-[9px] font-bold text-stone-400 uppercase tracking-widest">
                 <span className="text-stone-800">● CACHED</span>
@@ -192,7 +192,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
               <h3 className="text-[11px] font-black uppercase tracking-widest text-stone-800 mb-4 pb-2 border-b border-stone-200">
                 3-Day Site Pattern
               </h3>
-              
+
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-0.5">Risk Profile</div>
@@ -216,10 +216,10 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
 
               {report.why_hot && (typeof report.why_hot === 'string' || report.why_hot.explanation) && (
                 <div className="border-t border-stone-200 pt-4">
-                   <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-1">Site Pattern</div>
-                   <p className="text-[11px] text-stone-700 leading-relaxed font-serif italic">
-                     "{typeof report.why_hot === 'string' ? report.why_hot : report.why_hot.explanation}"
-                   </p>
+                  <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400 mb-1">Site Pattern</div>
+                  <p className="text-[11px] text-stone-700 leading-relaxed font-serif italic">
+                    "{typeof report.why_hot === 'string' ? report.why_hot : report.why_hot.explanation}"
+                  </p>
                 </div>
               )}
             </div>
