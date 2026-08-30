@@ -1,7 +1,6 @@
+import { Activity } from 'lucide-react';
 import React from 'react';
 import { CheckResponse } from '../../types/api';
-import { formatTemp } from '../../constants/riskLevels';
-import { Clock, ShieldAlert, Activity } from 'lucide-react';
 
 interface CurrentSentinelActivityProps {
   events: (CheckResponse & { isSimulated?: boolean })[];

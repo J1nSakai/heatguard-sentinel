@@ -1,7 +1,7 @@
+import { Info, ShieldAlert, ShieldCheck } from 'lucide-react';
 import React from 'react';
+import { getBackendRiskConfig } from '../../constants/riskLevels';
 import { CheckResponse } from '../../types/api';
-import { formatTemp, getBackendRiskConfig } from '../../constants/riskLevels';
-import { ShieldAlert, ShieldCheck, Thermometer, Info } from 'lucide-react';
 
 interface SentinelDecisionCardProps {
   checkResult: CheckResponse | null;

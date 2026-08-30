@@ -1,26 +1,20 @@
 
-import React from 'react';
-import { useSafety } from '../../context/SafetyContext';
-import { formatTemp } from '../../constants/riskLevels';
 import {
-  FileCheck,
-  Download,
-  Printer,
-  ShieldAlert,
-  Clock,
-  Droplets,
-  AlertTriangle,
   Award,
+  FileCheck,
+  Printer
 } from 'lucide-react';
+import React from 'react';
 import {
-  BarChart,
   Bar,
+  BarChart,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
 } from 'recharts';
+import { useSafety } from '../../context/SafetyContext';
 
 export const OshaHeatReport: React.FC = () => {
   const { workers, sites, alerts, tempUnit } = useSafety();

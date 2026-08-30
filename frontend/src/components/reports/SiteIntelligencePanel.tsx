@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Zone, ReportResponse, CheckResponse } from '../../types/api';
-import { fetchReport, getErrorMessage } from '../../services/apiClient';
-import { SentinelDecisionCard } from './SentinelDecisionCard';
+import { AlertCircle, Loader2, MapPin, Search } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { CheckResponse, ReportResponse, Zone } from '../../types/api';
 import { CurrentSentinelActivity } from './CurrentSentinelActivity';
-import { MapPin, Search, Zap, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
+import { SentinelDecisionCard } from './SentinelDecisionCard';
 
 interface SiteIntelligencePanelProps {
   selectedZone: Zone;
