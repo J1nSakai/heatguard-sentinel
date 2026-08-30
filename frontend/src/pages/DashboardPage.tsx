@@ -1,324 +1,248 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSafety } from '../context/SafetyContext';
-import { KpiWidget } from '../components/common/KpiWidget';
-import { HighRiskWorkers } from '../components/dashboard/HighRiskWorkers';
-import { AlertFeed } from '../components/dashboard/AlertFeed';
-import { SiteSummaryCards } from '../components/dashboard/SiteSummaryCards';
-import { QuickActionsBar } from '../components/dashboard/QuickActionsBar';
-import { HeatMapView } from '../components/map/HeatMapView';
-import { WorkerTable } from '../components/workers/WorkerTable';
-import { WorkerFormModal } from '../components/workers/WorkerFormModal';
-import { ConfirmDialog } from '../components/common/ConfirmDialog';
-import { Worker } from '../types';
-import { formatTemp } from '../constants/riskLevels';
-import {
-  Users,
-  AlertTriangle,
-  Flame,
-  Building2,
-  Bell,
-  Thermometer,
-  LayoutGrid,
-  List,
-  Map as MapIcon,
-  Maximize2,
-} from 'lucide-react';
-
-type DashboardViewMode = 'full' | 'mini' | 'row' | 'map';
+import { Zone, CheckResponse } from '../types/api';
+import { fetchZones, checkZone, getErrorMessage } from '../services/apiClient';
+import { getDistanceFromLatLonInKm } from '../utils/geo';
+import { ZoneSelectionMap } from '../components/map/ZoneSelectionMap';
+import { SiteIntelligencePanel } from '../components/reports/SiteIntelligencePanel';
+import { SiteThermalHistory } from '../components/reports/SiteThermalHistory';
+import { useSiteReport } from '../hooks/useSiteReport';
+import { Activity, MapPin, Loader2, RefreshCw } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
-  const { workers, kpiSummary, selectedSiteId, tempUnit, bulkSendBreakAlert, deleteWorker } = useSafety();
+  const { selectedZoneId, setSelectedZoneId } = useSafety();
+  
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [zonesLoading, setZonesLoading] = useState(true);
+  const [zonesError, setZonesError] = useState<string | null>(null);
+  
+  const [clickedLocation, setClickedLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [checkLoading, setCheckLoading] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  
+  const checkAbortRef = useRef<AbortController | null>(null);
+  
+  const { report, reportLoading, reportError, cachedTime, loadReport } = useSiteReport(selectedZoneId);
 
-  const [viewMode, setViewMode] = useState<DashboardViewMode>('full');
-  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
-  const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
-  const [workerModalOpen, setWorkerModalOpen] = useState(false);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [workerToDelete, setWorkerToDelete] = useState<Worker | null>(null);
-
-  const displayedWorkers = selectedSiteId === 'all' ? workers : workers.filter((w) => w.siteId === selectedSiteId);
-
-  const handleToggleSelect = (id: string) => {
-    setSelectedWorkerIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
-  const handleSelectAll = (selected: boolean) => {
-    if (selected) {
-      setSelectedWorkerIds(displayedWorkers.map((w) => w.id));
-    } else {
-      setSelectedWorkerIds([]);
+  // Load zones on mount
+  const loadZones = async () => {
+    setZonesLoading(true);
+    setZonesError(null);
+    try {
+      const data = await fetchZones();
+      setZones(data.zones);
+      // If no zone selected, default to first
+      if (!selectedZoneId && data.zones.length > 0) {
+        setSelectedZoneId(data.zones[0].id);
+      }
+    } catch (err) {
+      setZonesError(getErrorMessage(err));
+    } finally {
+      setZonesLoading(false);
     }
   };
 
-  const handleEditWorker = (worker: Worker) => {
-    setEditingWorker(worker);
-    setWorkerModalOpen(true);
+  useEffect(() => {
+    loadZones();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Timer for long-running checks
+  useEffect(() => {
+    let interval: number;
+    if (checkLoading) {
+      interval = window.setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [checkLoading]);
+
+  // Handle Map Interaction
+  const handleMapClick = (lat: number, lng: number) => {
+    if (zones.length === 0) return;
+
+    let nearestZone = zones[0];
+    let minDistance = getDistanceFromLatLonInKm(lat, lng, nearestZone.lat, nearestZone.lon);
+
+    for (let i = 1; i < zones.length; i++) {
+      const dist = getDistanceFromLatLonInKm(lat, lng, zones[i].lat, zones[i].lon);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearestZone = zones[i];
+      }
+    }
+
+    setSelectedZoneId(nearestZone.id);
+    setClickedLocation({ lat, lng });
   };
 
-  const handleDeleteWorkerPrompt = (worker: Worker) => {
-    setWorkerToDelete(worker);
-    setDeleteConfirmOpen(true);
+  const handleZoneMarkerClick = (zoneId: string) => {
+    setSelectedZoneId(zoneId);
+    setClickedLocation(null);
   };
+
+  const handleDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedZoneId(e.target.value || null);
+    setClickedLocation(null);
+  };
+
+  // Run Check (passed to Panel)
+  const handleRunCheck = async (simulate: boolean, temp?: number): Promise<CheckResponse | null> => {
+    if (!selectedZoneId) return null;
+
+    if (checkAbortRef.current) {
+      checkAbortRef.current.abort();
+    }
+    checkAbortRef.current = new AbortController();
+
+    setCheckLoading(true);
+    try {
+      const body = simulate ? { simulate: true, simulate_temp_c: temp } : {};
+      const result = await checkZone(selectedZoneId, body, checkAbortRef.current.signal);
+      return result;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return null;
+      console.error(err);
+      throw err; // Let SiteIntelligencePanel handle it
+    } finally {
+      setCheckLoading(false);
+    }
+  };
+
+  const activeZone = zones.find((z) => z.id === selectedZoneId);
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner & View Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
-            <span>Outdoor Worker Safety Sentinel</span>
-            <span className="rounded-md bg-rose-500/20 px-2 py-0.5 text-xs font-mono font-bold text-rose-400 border border-rose-500/30">
-              COMMAND CENTER
-            </span>
+    <div className="flex flex-col h-screen w-full bg-stone-50 overflow-hidden font-sans">
+      
+      {/* HEADER */}
+      <div className="h-12 border-b border-stone-300 bg-stone-50 flex items-center justify-between px-6 shrink-0">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-stone-800" />
+          <h1 className="text-[11px] font-black text-stone-800 uppercase tracking-widest leading-none">
+            Thermal Intelligence Console
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Real-time microclimate thermal surveillance, heat risk indicators, and rapid alert dispatch
-          </p>
         </div>
-
-        {/* View Mode Switcher Pills (Day 6 deliverable: Full, Mini, Row, Map) */}
-        <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-slate-900/90 p-1 text-xs font-semibold">
-          <button
-            onClick={() => setViewMode('full')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-all ${
-              viewMode === 'full'
-                ? 'bg-rose-600 text-white font-bold shadow'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            <span>Full View</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode('mini')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-all ${
-              viewMode === 'mini'
-                ? 'bg-rose-600 text-white font-bold shadow'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-            <span>Mini View</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode('row')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-all ${
-              viewMode === 'row'
-                ? 'bg-rose-600 text-white font-bold shadow'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <List className="h-3.5 w-3.5" />
-            <span>Row View</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode('map')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-all ${
-              viewMode === 'map'
-                ? 'bg-rose-600 text-white font-bold shadow'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <MapIcon className="h-3.5 w-3.5" />
-            <span>Map View</span>
-          </button>
+        <div className="text-[9px] font-bold uppercase tracking-widest text-stone-400">
+          Site Status
         </div>
       </div>
 
-      {/* KPI Summary Widgets */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-        <KpiWidget
-          title="Total Personnel"
-          value={kpiSummary.totalWorkers}
-          subtitle="Monitored in field"
-          icon={Users}
-          variant="default"
-        />
-        <KpiWidget
-          title="At Risk Personnel"
-          value={kpiSummary.atRiskWorkers}
-          subtitle={`${kpiSummary.extremeWorkers} in Extreme Zone`}
-          icon={Flame}
-          variant={kpiSummary.atRiskWorkers > 0 ? 'danger' : 'safe'}
-        />
-        <KpiWidget
-          title="Active Job Sites"
-          value={kpiSummary.activeSites}
-          subtitle="FortyGuard AOI"
-          icon={Building2}
-          variant="info"
-        />
-        <KpiWidget
-          title="Alerts Today"
-          value={kpiSummary.alertsToday}
-          subtitle={`${kpiSummary.unacknowledgedAlerts} unacknowledged`}
-          icon={Bell}
-          variant={kpiSummary.unacknowledgedAlerts > 0 ? 'caution' : 'default'}
-        />
-        <KpiWidget
-          title="Peak Heat Recorded"
-          value={formatTemp(kpiSummary.highestTempRecorded, tempUnit)}
-          subtitle="Solar radiance peak"
-          icon={Thermometer}
-          variant="danger"
-        />
-        <KpiWidget
-          title="Pending Breaks"
-          value={kpiSummary.breakRequestsPending}
-          subtitle="Awaiting rotation"
-          icon={AlertTriangle}
-          variant={kpiSummary.breakRequestsPending > 0 ? 'caution' : 'safe'}
-        />
-      </div>
+      <div className="flex flex-1 flex-col lg:flex-row overflow-hidden">
+        {/* LEFT: MAP & HISTORY */}
+        <div className="flex-1 lg:w-2/3 flex flex-col border-b lg:border-b-0 border-stone-300">
+          
+          <div className="flex-1 h-[50vh] lg:h-auto relative bg-stone-200 border-b border-stone-300">
+            <ZoneSelectionMap
+              zones={zones}
+              selectedZoneId={selectedZoneId}
+              clickedLocation={clickedLocation}
+              onMapClick={handleMapClick}
+              onZoneMarkerClick={handleZoneMarkerClick}
+            />
 
-      {/* Quick Action Bar for Safety Leads */}
-      <QuickActionsBar />
-
-      {/* VIEW MODE 1: FULL VIEW */}
-      {viewMode === 'full' && (
-        <div className="space-y-6">
-          {/* Priority High Risk Workers */}
-          <HighRiskWorkers />
-
-          {/* Interactive Heatmap Section */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  <span>FortyGuard Thermal Sentinel Map</span>
-                  <span className="rounded bg-rose-500/20 px-2 py-0.5 text-xs font-mono font-bold text-rose-400 border border-rose-500/30">
-                    Live GPS Telemetry
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Microclimate heat tiles, live worker pins, and cool-down shelter positions
+            {/* Map Overlay UX */}
+            <div className="absolute top-4 left-4 z-[400] pointer-events-none hidden sm:block">
+              <div className="bg-white/90 backdrop-blur-md p-4 border border-stone-300 shadow-sm max-w-[260px] mb-2">
+                <h2 className="text-[10px] font-black uppercase tracking-widest text-stone-800 mb-1">
+                  Pin A Work Location
+                </h2>
+                <p className="text-[11px] font-medium text-stone-600 leading-snug">
+                  Click anywhere on the map to identify the nearest monitored construction zone.
                 </p>
               </div>
-            </div>
-            <HeatMapView heightClass="h-[460px]" />
-          </div>
 
-          {/* Grid Layout: Site Summaries & Live Alert Feed */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <SiteSummaryCards />
-            </div>
-            <div className="lg:col-span-1">
-              <AlertFeed maxItems={5} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW MODE 2: MINI VIEW (Compact snapshots) */}
-      {viewMode === 'mini' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayedWorkers.map((worker) => (
-              <div
-                key={worker.id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3">
-                  <img
-                    src={worker.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100'}
-                    alt={worker.name}
-                    className="h-10 w-10 rounded-xl object-cover border border-slate-700"
-                  />
+              {clickedLocation && activeZone && (
+                <div className="bg-white/90 backdrop-blur-md p-3 border border-stone-300 shadow-sm max-w-[260px]">
+                  <div className="mb-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-stone-400 mb-0.5">Selected Location</div>
+                    <div className="text-[10px] font-mono font-bold text-stone-700">{clickedLocation.lat.toFixed(4)}, {clickedLocation.lng.toFixed(4)}</div>
+                  </div>
                   <div>
-                    <h4 className="font-bold text-sm text-slate-100">{worker.name}</h4>
-                    <p className="text-xs text-slate-400">{worker.role}</p>
-                    <p className="text-[10px] text-slate-500">{worker.siteName}</p>
+                    <div className="text-[8px] font-black uppercase tracking-widest text-stone-400 mb-0.5">Matched Zone</div>
+                    <div className="text-[10px] font-bold text-stone-800 leading-snug">{activeZone.name}</div>
                   </div>
                 </div>
-
-                <div className="text-right font-mono">
-                  <span
-                    className={`text-base font-bold ${
-                      worker.status === 'extreme'
-                        ? 'text-red-500'
-                        : worker.status === 'danger'
-                        ? 'text-rose-400'
-                        : worker.status === 'caution'
-                        ? 'text-amber-400'
-                        : 'text-emerald-400'
-                    }`}
-                  >
-                    {formatTemp(worker.currentTemp, tempUnit)}
-                  </span>
-                  <div className="mt-1">
-                    <span
-                      className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${
-                        worker.status === 'extreme'
-                          ? 'bg-red-950 text-red-300 border-red-700'
-                          : worker.status === 'danger'
-                          ? 'bg-rose-950 text-rose-300 border-rose-700'
-                          : worker.status === 'caution'
-                          ? 'bg-amber-950 text-amber-300 border-amber-700'
-                          : 'bg-emerald-950 text-emerald-300 border-emerald-700'
-                      }`}
-                    >
-                      {worker.status}
-                    </span>
-                  </div>
+              )}
+            </div>
+            
+            {/* Zone Override Overlay */}
+            <div className="absolute bottom-4 left-4 z-[400] bg-white/90 backdrop-blur-md p-3 border border-stone-300 shadow-sm">
+              <label className="block text-[9px] font-black text-stone-800 uppercase tracking-widest mb-1.5">
+                Zone Override
+              </label>
+              <div className="relative border border-stone-300 bg-white hover:border-stone-400 transition-colors">
+                <select
+                  value={selectedZoneId || ''}
+                  onChange={handleDropdownChange}
+                  className="w-56 appearance-none bg-transparent py-1.5 pl-2 pr-8 text-[10px] font-bold text-stone-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-stone-500"
+                >
+                  {zones.length === 0 && <option value="">No zones available</option>}
+                  {zones.map((zone) => (
+                    <option key={zone.id} value={zone.id}>
+                      {zone.name.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                  <svg className="h-3 w-3 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                 </div>
               </div>
-            ))}
+              <p className="text-[8px] font-medium text-stone-500 mt-1.5">Select monitored zone manually</p>
+            </div>
           </div>
 
-          <AlertFeed maxItems={4} />
+          {/* SITE THERMAL HISTORY STRIP */}
+          <div className="h-auto lg:h-[220px] shrink-0">
+            <SiteThermalHistory 
+              report={report}
+              reportLoading={reportLoading}
+              reportError={reportError}
+              cachedTime={cachedTime}
+              loadReport={loadReport}
+              zoneSelected={!!selectedZoneId}
+            />
+          </div>
         </div>
-      )}
 
-      {/* VIEW MODE 3: ROW VIEW (High density monitoring) */}
-      {viewMode === 'row' && (
-        <div className="space-y-6">
-          <WorkerTable
-            workers={displayedWorkers}
-            selectedWorkerIds={selectedWorkerIds}
-            onToggleSelect={handleToggleSelect}
-            onSelectAll={handleSelectAll}
-            onEditWorker={handleEditWorker}
-            onDeleteWorker={handleDeleteWorkerPrompt}
+      {/* RIGHT: INTELLIGENCE RAIL */}
+      <div className="w-full lg:w-1/3 lg:min-w-[420px] h-[50vh] lg:h-full flex flex-col bg-stone-50 z-10 shadow-[-5px_0_15px_rgba(0,0,0,0.02)] relative">
+        {zonesLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-stone-400 mb-4" />
+            <span className="text-xs font-bold uppercase tracking-widest text-stone-500">Initializing Console...</span>
+          </div>
+        ) : zonesError ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <div className="text-[10px] font-black uppercase tracking-widest text-rose-600 mb-2">Service Unavailable</div>
+            <p className="text-stone-500 text-xs font-medium mb-4">Unable to reach Sentinel services.</p>
+            <button onClick={loadZones} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-stone-600 border border-stone-300 px-4 py-2 bg-white hover:bg-stone-100 transition-colors">
+              <RefreshCw className="h-3 w-3" /> Retry Connection
+            </button>
+          </div>
+        ) : activeZone ? (
+          <SiteIntelligencePanel
+            selectedZone={activeZone}
+            clickedLocation={clickedLocation}
+            onRunCheck={handleRunCheck}
+            checkLoading={checkLoading}
+            elapsedSeconds={elapsedSeconds}
+            report={report}
+            reportLoading={reportLoading}
+            reportError={reportError}
+            cachedTime={cachedTime}
+            loadReport={loadReport}
           />
-        </div>
-      )}
-
-      {/* VIEW MODE 4: MAP VIEW (Full tactical heat perspective) */}
-      {viewMode === 'map' && (
-        <div className="space-y-6">
-          <HeatMapView heightClass="h-[680px]" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <HighRiskWorkers />
-            <AlertFeed maxItems={6} />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm font-medium text-stone-500">
+            Please select a zone.
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Edit Worker Modal */}
-      <WorkerFormModal
-        isOpen={workerModalOpen}
-        onClose={() => setWorkerModalOpen(false)}
-        workerToEdit={editingWorker}
-      />
-
-      {/* Delete Confirmation Modal */}
-      {workerToDelete && (
-        <ConfirmDialog
-          isOpen={deleteConfirmOpen}
-          onClose={() => setDeleteConfirmOpen(false)}
-          onConfirm={() => deleteWorker(workerToDelete.id)}
-          title="Delete Worker"
-          message={`Are you sure you want to remove "${workerToDelete.name}" from Sentinel monitoring?`}
-          confirmLabel="Delete Worker"
-          isDestructive={true}
-        />
-      )}
+      </div>
     </div>
   );
 };
