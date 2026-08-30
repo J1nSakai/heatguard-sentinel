@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useSafety } from '../../context/SafetyContext';
 import { formatTemp } from '../../constants/riskLevels';
