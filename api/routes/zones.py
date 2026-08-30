@@ -122,7 +122,8 @@ def get_pinned_report(location: PinnedLocation):
     )
 
 
-from pydantic import BaseModel
+import re
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from agent.escalation import evaluate_site
  
@@ -131,6 +132,14 @@ class CheckZoneRequest(BaseModel):
     recipient_email: Optional[str] = None   # site manager's email, from frontend
     simulate: bool = False                   # demo-safety: force a test alert
     simulate_temp_c: float = 42.0
+
+    @field_validator('recipient_email')
+    @classmethod
+    def validate_email(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
+                raise ValueError("Invalid email format")
+        return v
  
  
 @router.post("/{zone_id}/check")

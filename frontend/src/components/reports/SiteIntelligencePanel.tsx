@@ -8,7 +8,7 @@ import { MapPin, Search, Zap, RefreshCw, AlertCircle, Loader2 } from 'lucide-rea
 interface SiteIntelligencePanelProps {
   selectedZone: Zone;
   clickedLocation: { lat: number; lng: number } | null;
-  onRunCheck: (simulate: boolean, temp?: number) => Promise<CheckResponse | null>;
+  onRunCheck: (simulate: boolean, temp?: number, recipientEmail?: string) => Promise<CheckResponse | null>;
   checkLoading: boolean;
   elapsedSeconds: number;
   report: ReportResponse | null;
@@ -35,6 +35,7 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
   const [latestCheckIsSimulated, setLatestCheckIsSimulated] = useState<boolean>(false);
   const [sessionEvents, setSessionEvents] = useState<(CheckResponse & { isSimulated?: boolean })[]>([]);
   const [checkError, setCheckError] = useState<string | null>(null);
+  const [recipientEmail, setRecipientEmail] = useState<string>('');
 
   useEffect(() => {
     setLatestCheck(null);
@@ -43,9 +44,13 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
   }, [selectedZone.id]);
 
   const handleAction = async (simulate: boolean) => {
+    if (recipientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+      setCheckError("Please enter a valid email address.");
+      return;
+    }
     setCheckError(null);
     try {
-      const result = await onRunCheck(simulate, simulateTemp);
+      const result = await onRunCheck(simulate, simulateTemp, recipientEmail || undefined);
       if (result) {
         setLatestCheck(result);
         setLatestCheckIsSimulated(simulate);
@@ -96,6 +101,17 @@ export const SiteIntelligencePanel: React.FC<SiteIntelligencePanelProps> = ({
             System awaiting manual check...
           </div>
         )}
+
+        <div className="mb-4">
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1">Alert Email (Optional)</label>
+          <input
+            type="email"
+            value={recipientEmail}
+            onChange={(e) => setRecipientEmail(e.target.value)}
+            placeholder="manager@example.com"
+            className="w-full border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-500 focus:border-transparent transition-colors"
+          />
+        </div>
 
         <div className="flex flex-col xl:flex-row gap-3">
           <button
