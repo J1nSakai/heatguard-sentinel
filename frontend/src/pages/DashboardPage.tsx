@@ -388,7 +388,7 @@ export const DashboardPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-stone-800" />
           <h1 className="text-[11px] font-black text-stone-800 uppercase tracking-widest leading-none">
-            Thermal Intelligence Console
+            HeatGuard Sentinel
           </h1>
         </div>
         <div className="flex items-center gap-3">
